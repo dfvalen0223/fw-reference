@@ -6,6 +6,32 @@
 *.lo
 *.o
 *.obj
+*.a
+*.so
+*.exe
+
+# Coverage. Ignore diagnostic code files
+# Compilation files
+*.gcno 
+# Counter runs each code line
+*.gcda 
+# Reports
+*.gcov 
+# Reports
+coverage.info 
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# IDE
+.vscode/
+.idea/
+.cache/
+*.swp
+*~
 
 # Precompiled Headers
 *.gch
@@ -41,8 +67,8 @@
 
 # Build directories
 build/
-Build/
-build-*/
+cmake-build-*/
+out/
 
 # CMake generated files
 CMakeFiles/
@@ -51,6 +77,7 @@ cmake_install.cmake
 Makefile
 install_manifest.txt
 compile_commands.json
+*.cmake.user
 
 # Temporary files
 *.tmp
