@@ -16,6 +16,9 @@
 - **CMake + Ninja** build system with cross-compile support for ARM Cortex-M3
 - **Continuous Integration** via GitHub Actions with coverage reporting
 - **Static analysis** with cppcheck on every push
+- **Mock SPI and Timer** for comprehensive SIL testing
+- **CRC-16 cross-validator** in Python (100 random test vectors)
+- **BMP280 sensor stub** for pressure/temperature simulation
 
 ## Build & Test
 
@@ -28,6 +31,23 @@ cmake --build build
 
 # Run tests
 ctest --test-dir build --output-on-failure
+
+# Local coverage (macOS, requires llvm-cov)
+cmake -B build -G Ninja -DENABLE_COVERAGE=ON
+cmake --build build
+ninja -C build coverage
+```
+
+## Tools
+
+Python scripts for cross-validation and simulation:
+
+- `tools/crc_validator.py` — CRC-16 CCITT implementation, generates 100 random test vectors
+- `tools/bmp280_stub.py` — BMP280 pressure/temperature frame simulator
+
+```bash
+python3 tools/crc_validator.py  # generates test_vectors.csv
+python3 tools/bmp280_stub.py    # prints 10 sample frames
 ```
 
 ## Architecture

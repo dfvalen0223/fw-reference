@@ -2,6 +2,7 @@
 import random
 import csv
 
+
 def crc16_ccitt(data: bytes) -> int:
     crc = 0xFFFF
     for byte in data:
@@ -14,11 +15,12 @@ def crc16_ccitt(data: bytes) -> int:
         crc &= 0xFFFF
     return crc
 
+
 def main():
-    # 1. Verify canonical vector: "123456789" → 0x29B1
+    # Verify canonical vector: "123456789" -> 0x29B1
     assert crc16_ccitt(b"123456789") == 0x29B1, "Canonical vector failed!"
 
-    # 2. Generate 100 random payloads
+    # Generate 100 random payloads and write CSV
     with open("test_vectors.csv", "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(["payload_hex", "crc_hex"])
@@ -29,6 +31,7 @@ def main():
             writer.writerow([payload.hex(), f"{crc:04X}"])
 
     print("Generated test_vectors.csv with 100 CRC-16 CCITT vectors")
+
 
 if __name__ == "__main__":
     main()

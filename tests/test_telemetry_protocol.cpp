@@ -112,7 +112,7 @@ TEST_F(TelemetryProtocolTest, SendFrameEmptyPayload) {
     EXPECT_CALL(mock_uart, init(_))
         .WillOnce(Return(hal::Status::OK));
     EXPECT_CALL(mock_uart, transmit(_, 4, 1000))  // SOF(1)+LEN(1)+CRC(2) = 4
-        .WillOnce([](const uint8_t* data, std::size_t len, uint32_t) {
+        .WillOnce([](const uint8_t* data, std::size_t /* len */, uint32_t) {
             EXPECT_EQ(data[0], 0xAA);    // SOF
             EXPECT_EQ(data[1], 0x00);    // LEN = 0
             uint16_t expected_crc = util::crc16_ccitt(&data[1], 1);  // CRC over [0x00]

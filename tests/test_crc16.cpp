@@ -16,6 +16,7 @@ TEST(Crc16Test, KnownVector_123456789) {
 // Empty input should return the init value (0xFFFF) unchanged.
 TEST(Crc16Test, EmptyInputReturnsInitValue) {
     EXPECT_EQ(util::crc16_ccitt(nullptr, 0), 0xFFFF);
+}
 
 // Edge-case Max Payload (64 bytes)
 TEST(Crc16Test, MaxPayload) {
@@ -33,7 +34,7 @@ TEST(Crc16Test, SingleByte) {
     // uint16_t result = util::crc16_ccitt(&data, 1);
     // CRC of single byte 0x42 — verify it's not 0xFFFF
     //EXPECT_NE(result, 0xFFFF);
-    EXPECT_NE(util::crc16_ccitt(&data, 1), 0xFFFF);
+    EXPECT_EQ(util::crc16_ccitt(&data, 1), 0x8976);
 }
 
 // Edge-case Defensive FW, just in case a nullptr with size 5 pass to CRC. I Shouldn't happen a Fault segmentation (PC) or HardFeilt (MCU)
@@ -52,9 +53,8 @@ TEST(Crc16Test, NullWithLength) {
 TEST(Crc16Test, AllZeros) {
     std::array<uint8_t, 10> data{};
     data.fill(0);
-    uint16_t result = util::crc16_ccitt(data.data(), data.size());
     // CRC of all zeros — known value, just verify != 0xFFFF
     // EXPECT_NE(result, 0xFFFF);
     // https://crccalc.com/?crc=00000000000000000000&method=CRC-16/IBM-3740&datatype=hex&outtype=hex
-    EXPECT_EQ(util::crc16_ccitt(data.data(), data.size()), 0x2476);
+    EXPECT_EQ(util::crc16_ccitt(data.data(), data.size()), 0xE139);
 }

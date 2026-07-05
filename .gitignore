@@ -94,3 +94,6 @@ vcpkg_installed/
 # test output & cache
 Testing/
 .cache/
+
+# Generated test vectors
+test_vectors.csv

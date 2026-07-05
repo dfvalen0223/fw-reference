@@ -17,7 +17,8 @@ namespace util {
  */
 // inline: To prevent asm from doing a go to memory, it pastes it where it is used
 inline uint16_t crc16_ccitt(const uint8_t* data, std::size_t len) {
-    // known starting value 0xFFFF to standardize CRC 
+    // known starting value 0xFFFF to standardize CRC
+    if (data == nullptr) return 0xFFFF;
     uint16_t crc = 0xFFFF;
     for (std::size_t i = 0; i < len; i++) {
         // The XOR is processed bit by bit to avoid using a Lookup Table and save RAM
