@@ -17,10 +17,10 @@ def crc16_ccitt(data: bytes) -> int:
 
 
 def main():
-    # Verify canonical vector: "123456789" -> 0x29B1
+    # Smoke test: "123456789" should give 0x29B1
     assert crc16_ccitt(b"123456789") == 0x29B1, "Canonical vector failed!"
 
-    # Generate 100 random payloads and write CSV
+    # Dump 100 random test vectors to CSV
     with open("test_vectors.csv", "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(["payload_hex", "crc_hex"])

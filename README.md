@@ -51,23 +51,26 @@ python3 tools/bmp280_stub.py    # prints 10 sample frames
 ```
 
 ## Architecture
+
+```
 ┌─────────────────────────────────┐
-│         Application Layer       │  		(main.cpp )
+│         Application Layer       │   (main.cpp)
 ├─────────────────────────────────┤
-│           Driver Layer          │  		(TelemetryProtocol, sensors)
-│   depends on HAL interfaces 	  │◄─────── not on concrete hardware
+│           Driver Layer          │   (TelemetryProtocol, sensors)
+│   depends on HAL interfaces     │◄────── not on concrete hardware
 ├─────────────────────────────────┤
-│        HAL Interface Layer      │  		(IUart, IGpio, ISpi, ITimer)
+│        HAL Interface Layer      │   (IUart, IGpio, ISpi, ITimer)
 ├───────────────┬─────────────────┤
 │  HAL LPC1768  │  HAL Mock       │
 │  (target)     │  (host tests)   │
 └───────────────┴─────────────────┘
+```
 
 ## Why This Exists
 
-This project demonstrates senior-level embedded firmware practices: dependency injection via hardware abstraction, SIL testing with mocks, and defensive programming patterns (guard clauses, CRC validation, safe-state recovery) required for systems that cannot be easily serviced in the field.
+This project shows senior-level embedded firmware practices — dependency injection through hardware abstraction, SIL testing with mocks, and defensive patterns (guard clauses, CRC validation, safe-state recovery) needed for systems that can't be easily serviced in the field.
 
-Built on prior experience with the LPC1768.
+Built on prior work with the LPC1768 in safety-critical medical firmware.
 
 ## License
 

@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """
-Stub for BMP280 pressure/temperature sensor.
-Generates simulated telemetry frames matching the format expected
-by the C++ TelemetryProtocol driver.
+BMP280 pressure/temperature sensor stub.
+Generates simulated telemetry frames as the C++ driver would expect them.
 
 Frame format: [SOF=0xAA][LEN][PAYLOAD][CRC16]
 Payload: [PRESSURE_HI][PRESSURE_LO][TEMP_HI][TEMP_LO]
