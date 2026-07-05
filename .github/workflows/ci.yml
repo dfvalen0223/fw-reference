@@ -10,13 +10,15 @@ jobs:
   unit-tests:
     name: Unit Tests + Coverage
     runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true    
 
     permissions:
       id-token: write   # Required for Codecov OIDC (no token needed for public repos)
       contents: read
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v5
 
       - name: Install dependencies
         run: |
