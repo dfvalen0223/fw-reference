@@ -73,6 +73,19 @@ endif()
 #    target_link_options(FileName PRIVATE --coverage)
 # endif()
 
+# ---- Local coverage target (macOS only) ----
+if(APPLE AND ENABLE_COVERAGE)
+    find_program(LLVM_COV llvm-cov)
+    if(LLVM_COV)
+        add_custom_target(coverage
+            COMMAND ${LLVM_COV} gcov ${CMAKE_BINARY_DIR}
+            COMMENT "Generating coverage report with llvm-cov..."
+        )
+    else()
+        message(WARNING "llvm-cov not found. Install with: brew install llvm")
+    endif()
+endif()
+
 # ---- HAL interface library (header-only, no hardware deps) ----
 add_library(hal_interface INTERFACE)
 # Search library files (.h) on ${CMAKE_SOURCE_DIR}/include folder

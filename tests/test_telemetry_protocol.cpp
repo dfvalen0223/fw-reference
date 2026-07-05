@@ -106,3 +106,70 @@ TEST_F(TelemetryProtocolTest, SendFrameFailsIfNotInitialized) {
     const uint8_t payload[] = {0x01};
     EXPECT_FALSE(proto.send_frame(payload, sizeof(payload)));
 }
+
+// Edge-case Test 6: send_frame with zero-length payload should still transmit SOF+LEN+CRC
+TEST_F(TelemetryProtocolTest, SendFrameEmptyPayload) {
+    EXPECT_CALL(mock_uart, init(_))
+        .WillOnce(Return(hal::Status::OK));
+    EXPECT_CALL(mock_uart, transmit(_, 4, 1000))  // SOF(1)+LEN(1)+CRC(2) = 4
+        .WillOnce([](const uint8_t* data, std::size_t len, uint32_t) {
+            EXPECT_EQ(data[0], 0xAA);    // SOF
+            EXPECT_EQ(data[1], 0x00);    // LEN = 0
+            uint16_t expected_crc = util::crc16_ccitt(&data[1], 1);  // CRC over [0x00]
+            EXPECT_EQ(data[2], static_cast<uint8_t>(expected_crc >> 8));
+            EXPECT_EQ(data[3], static_cast<uint8_t>(expected_crc & 0xFF));
+            return hal::Status::OK;
+        });
+
+    drivers::TelemetryProtocol proto(mock_uart);
+    ASSERT_TRUE(proto.init());
+    EXPECT_TRUE(proto.send_frame(nullptr, 0));
+}
+
+// Edge-case Test 7: send_frame with max payload (64 bytes) boundary
+TEST_F(TelemetryProtocolTest, SendFrameMaxPayload) {
+    EXPECT_CALL(mock_uart, init(_))
+        .WillOnce(Return(hal::Status::OK));
+    EXPECT_CALL(mock_uart, transmit(_, 68, 1000))  // SOF(1)+LEN(1)+64+CRC(2) = 68
+        .WillOnce(Return(hal::Status::OK));
+
+    std::array<uint8_t, drivers::TelemetryProtocol::MAX_PAYLOAD> payload{};
+    payload.fill(0xFF);
+
+    drivers::TelemetryProtocol proto(mock_uart);
+    ASSERT_TRUE(proto.init());
+    EXPECT_TRUE(proto.send_frame(payload.data(), payload.size()));
+}
+
+// Edge-case Test 8: consecutive send_frame calls both succeed
+TEST_F(TelemetryProtocolTest, ConsecutiveSendFrame) {
+    EXPECT_CALL(mock_uart, init(_))
+        .WillOnce(Return(hal::Status::OK));
+    EXPECT_CALL(mock_uart, transmit(_, _, 1000))
+        .Times(2)
+        .WillRepeatedly(Return(hal::Status::OK));
+
+    const uint8_t payload[] = {0x01, 0x02};
+
+    drivers::TelemetryProtocol proto(mock_uart);
+    ASSERT_TRUE(proto.init());
+    EXPECT_TRUE(proto.send_frame(payload, sizeof(payload)));
+    EXPECT_TRUE(proto.send_frame(payload, sizeof(payload)));
+}
+
+// Edge-case Test 9: init fails → send_frame returns false
+TEST_F(TelemetryProtocolTest, SendFrameFailsWhenInitFails) {
+    // 1. Set ALL expectations first
+    EXPECT_CALL(mock_uart, init(_))
+        .WillOnce(Return(hal::Status::HW_ERROR));
+        
+    EXPECT_CALL(mock_uart, transmit(_, _, _))
+        .Times(0); // Ensures that it is never transmitted if init failed
+
+    // 2. Run the production code
+    drivers::TelemetryProtocol proto(mock_uart);
+    EXPECT_FALSE(proto.init()); 
+    
+    const uint8_t payload[] = {0x01};
+    EXPECT_FALSE(proto.send_frame(payload, sizeof(payload)));
+}
