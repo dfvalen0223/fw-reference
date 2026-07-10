@@ -102,10 +102,28 @@ target_link_libraries(drivers PUBLIC hal_interface)
 # Target build: cross-compile for LPC1768 
 if(CMAKE_CROSSCOMPILING)
     message(STATUS ">>> Target build: LPC1768 (firmware)")
-    # add_subdirectory(src/app)
-    # Add src/app/CMakeLists.txt
-	# add_executable(firmware.elf main_firmware.cpp)
-	# target_link_libraries(firmware.elf PRIVATE drivers)
+
+    add_subdirectory(lib)
+
+    add_executable(firmware.elf
+        src/app/main_blinky.cpp
+        lib/startup.cpp
+    )
+
+    target_link_libraries(firmware.elf PRIVATE
+        freertos_kernel
+        drivers
+    )
+
+    target_compile_options(freertos_kernel_port PRIVATE -Wno-unused-variable)
+
+    target_link_options(firmware.elf PRIVATE
+        -T ${CMAKE_CURRENT_SOURCE_DIR}/lib/lpc1768.ld
+    )
+
+    set_target_properties(firmware.elf PROPERTIES
+        SUFFIX ""
+    )
 else()
     message(STATUS ">>> Host build: unit tests (no hardware)")
     enable_testing()

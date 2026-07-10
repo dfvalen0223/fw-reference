@@ -1,0 +1,16 @@
+# ninja log v5
+0	26	1783643801985580205	_deps/freertos_kernel-build/CMakeFiles/freertos_kernel.dir/croutine.c.obj	44e4fd7b2e72728
+0	26	1783643801985962909	CMakeFiles/firmware.elf.dir/lib/startup.cpp.obj	47ca990554334f21
+2	36	1783643801994474700	_deps/freertos_kernel-build/CMakeFiles/freertos_kernel.dir/timers.c.obj	3b790e8bdcb47d42
+2	42	1783643802000541931	_deps/freertos_kernel-build/portable/CMakeFiles/freertos_kernel_port.dir/GCC/ARM_CM3/port.c.obj	5630d0ccce0af147
+0	43	1783643802003244404	CMakeFiles/firmware.elf.dir/src/app/main_blinky.cpp.obj	2e9cd3263cf09b81
+0	43	1783643802001963000	_deps/freertos_kernel-build/CMakeFiles/freertos_kernel.dir/event_groups.c.obj	8ec293c53637a695
+1	46	1783643802006457455	_deps/freertos_kernel-build/CMakeFiles/freertos_kernel.dir/list.c.obj	976a1614f561dfad
+2	52	1783643802012508104	_deps/freertos_kernel-build/CMakeFiles/freertos_kernel.dir/portable/MemMang/heap_4.c.obj	aa7e02ca90853afb
+1	57	1783643802018198089	_deps/freertos_kernel-build/CMakeFiles/freertos_kernel.dir/stream_buffer.c.obj	c6254050a75bf87
+1	64	1783643802024610650	_deps/freertos_kernel-build/CMakeFiles/freertos_kernel.dir/queue.c.obj	46495d335bb0be44
+0	70	1783643802031152960	CMakeFiles/drivers.dir/src/drivers/telemetry_protocol.cpp.obj	bdd39837a086520e
+70	88	1783643802048921000	libdrivers.a	e0aa656151e4a23f
+1	96	1783643802056699456	_deps/freertos_kernel-build/CMakeFiles/freertos_kernel.dir/tasks.c.obj	fa0fd29569f87de2
+96	116	1783643802077471000	_deps/freertos_kernel-build/libfreertos_kernel.a	f21e50dd7266382c
+116	131	1783643802091238737	firmware.elf	38ddf7bc60b6efb9

@@ -27,7 +27,10 @@ def main():
         for _ in range(100):
             length = random.randint(1, 64)
             payload = bytes(random.getrandbits(8) for _ in range(length))
-            crc = crc16_ccitt(payload)
+
+            # The CRC must include the length byte (LEN) before the payload
+            crc_data = bytes([len(payload)]) + payload
+            crc = crc16_ccitt(crc_data)
             writer.writerow([payload.hex(), f"{crc:04X}"])
 
     print("Generated test_vectors.csv with 100 CRC-16 CCITT vectors")

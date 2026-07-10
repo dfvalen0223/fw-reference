@@ -1,0 +1,12 @@
+# This is a generated file and its contents are an internal implementation detail.
+# The download step will be re-executed if anything in this file changes.
+# No other meaning or use of this file is supported.
+
+method=url
+command=/opt/homebrew/Cellar/cmake/3.27.8/bin/cmake;-P;/Users/danielvalencia/Documents/Jobs/Kraken Robotics - Senior Firmware Developer (Towed Systems) - Jun 21 2026/FreeRTOS Practice/fw-reference/build-arm/_deps/freertos_kernel-subbuild/freertos_kernel-populate-prefix/src/freertos_kernel-populate-stamp/download-freertos_kernel-populate.cmake;COMMAND;/opt/homebrew/Cellar/cmake/3.27.8/bin/cmake;-P;/Users/danielvalencia/Documents/Jobs/Kraken Robotics - Senior Firmware Developer (Towed Systems) - Jun 21 2026/FreeRTOS Practice/fw-reference/build-arm/_deps/freertos_kernel-subbuild/freertos_kernel-populate-prefix/src/freertos_kernel-populate-stamp/verify-freertos_kernel-populate.cmake;COMMAND;/opt/homebrew/Cellar/cmake/3.27.8/bin/cmake;-P;/Users/danielvalencia/Documents/Jobs/Kraken Robotics - Senior Firmware Developer (Towed Systems) - Jun 21 2026/FreeRTOS Practice/fw-reference/build-arm/_deps/freertos_kernel-subbuild/freertos_kernel-populate-prefix/src/freertos_kernel-populate-stamp/extract-freertos_kernel-populate.cmake
+source_dir=/Users/danielvalencia/Documents/Jobs/Kraken Robotics - Senior Firmware Developer (Towed Systems) - Jun 21 2026/FreeRTOS Practice/fw-reference/build-arm/_deps/freertos_kernel-src
+work_dir=/Users/danielvalencia/Documents/Jobs/Kraken Robotics - Senior Firmware Developer (Towed Systems) - Jun 21 2026/FreeRTOS Practice/fw-reference/build-arm/_deps
+url(s)=https://github.com/FreeRTOS/FreeRTOS-Kernel/archive/refs/tags/V11.3.0.zip
+hash=
+no_extract=
+
