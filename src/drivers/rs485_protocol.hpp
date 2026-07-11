@@ -30,8 +30,7 @@ private:
     hal::IRs485& rs485_;
 
     bool send_raw(const uint8_t* buf, std::size_t len);
-    bool recv_raw(uint8_t* buf, std::size_t& len);
-    uint16_t compute_crc(const uint8_t* buf, std::size_t len) const;
+    static uint16_t compute_crc(const uint8_t* buf, std::size_t len);
     bool wait_for_ack(uint8_t expected_seq);
 };
 

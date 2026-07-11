@@ -140,11 +140,7 @@ bool Rs485Protocol::send_raw(const uint8_t* buf, std::size_t len) {
     return rs485_.send(buf, len, ACK_TIMEOUT_MS) == hal::Status::OK;
 }
 
-bool Rs485Protocol::recv_raw(uint8_t* buf, std::size_t& len) {
-    return rs485_.recv(buf, len, ACK_TIMEOUT_MS) == hal::Status::OK;
-}
-
-uint16_t Rs485Protocol::compute_crc(const uint8_t* buf, std::size_t len) const {
+uint16_t Rs485Protocol::compute_crc(const uint8_t* buf, std::size_t len) {
     return util::crc16_ccitt(buf, len);
 }
 

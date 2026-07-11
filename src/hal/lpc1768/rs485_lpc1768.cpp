@@ -1,13 +1,13 @@
 #include "rs485_lpc1768.hpp"
 
 // UART2 registers (base 0x40098000)
-#define U2RBR    (*(volatile uint8_t*)0x40098000)
-#define U2THR    (*(volatile uint8_t*)0x40098000)
-#define U2DLL    (*(volatile uint8_t*)0x40098000)
-#define U2DLM    (*(volatile uint8_t*)0x40098004)
-#define U2FCR    (*(volatile uint8_t*)0x40098008)
-#define U2LCR    (*(volatile uint8_t*)0x4009800C)
-#define U2LSR    (*(volatile uint8_t*)0x40098014)
+#define U2RBR    (*reinterpret_cast<volatile uint8_t*>(0x40098000))
+#define U2THR    (*reinterpret_cast<volatile uint8_t*>(0x40098000))
+#define U2DLL    (*reinterpret_cast<volatile uint8_t*>(0x40098000))
+#define U2DLM    (*reinterpret_cast<volatile uint8_t*>(0x40098004))
+#define U2FCR    (*reinterpret_cast<volatile uint8_t*>(0x40098008))
+#define U2LCR    (*reinterpret_cast<volatile uint8_t*>(0x4009800C))
+#define U2LSR    (*reinterpret_cast<volatile uint8_t*>(0x40098014))
 
 // UART2 LSR bits
 #define LSR_THRE  (1 << 5)
@@ -15,18 +15,16 @@
 #define LSR_RDR   (1 << 0)
 
 // GPIO0 base
-#define FIO0BASE  0x20098000UL
-#define FIO0DIR   (*(volatile uint32_t*)FIO0BASE)
-#define FIO0SET   (*(volatile uint32_t*)(FIO0BASE + 0x1C))
-#define FIO0CLR   (*(volatile uint32_t*)(FIO0BASE + 0x20))
+#define FIO0DIR   (*reinterpret_cast<volatile uint32_t*>(0x20098000UL))
+#define FIO0SET   (*reinterpret_cast<volatile uint32_t*>(0x2009801CUL))
+#define FIO0CLR   (*reinterpret_cast<volatile uint32_t*>(0x20098020UL))
 
 // DE control pin
-#define DE_PORT   0
 #define DE_PIN    9
 #define DE_MASK   (1UL << DE_PIN)
 
 // Pin connect block
-#define PINSEL0   (*(volatile uint32_t*)0x4002C000)
+#define PINSEL0   (*reinterpret_cast<volatile uint32_t*>(0x4002C000))
 
 namespace hal::lpc1768 {
 
@@ -114,10 +112,6 @@ void Rs485Lpc1768::set_tx_mode() {
 
 void Rs485Lpc1768::set_rx_mode() {
     FIO0CLR = DE_MASK;
-}
-
-bool Rs485Lpc1768::tx_complete() {
-    return (U2LSR & LSR_TEMT) != 0;
 }
 
 bool Rs485Lpc1768::rx_available() {

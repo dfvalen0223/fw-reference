@@ -14,12 +14,11 @@ public:
                 uint32_t timeout_ms) override;
 
 private:
-    void set_tx_mode();
-    void set_rx_mode();
-    bool tx_complete();
-    bool rx_available();
-    uint8_t read_byte();
-    void write_byte(uint8_t b);
+    static void set_tx_mode();
+    static void set_rx_mode();
+    static bool rx_available();
+    static uint8_t read_byte();
+    static void write_byte(uint8_t b);
 };
 
 }  // namespace hal::lpc1768
