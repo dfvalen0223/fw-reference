@@ -1,6 +1,8 @@
 #include <cstdint>
 #include <FreeRTOS.h>
 #include <task.h>
+#include "drivers/rs485_protocol.hpp"
+#include "hal/lpc1768/rs485_lpc1768.hpp"
 
 // LPC1768 register access
 #define REG32(addr) (*reinterpret_cast<volatile uint32_t*>(addr))
@@ -90,14 +92,42 @@ void echo_task(void*) {
     }
 }
 
+void rs485_task(void*) {
+    hal::lpc1768::Rs485Lpc1768 hal;
+    if (hal.init(115200) != hal::Status::OK) {
+        while (true) { vTaskDelay(pdMS_TO_TICKS(1000)); }
+    }
+    drivers::Rs485Protocol proto(hal);
+
+    uint8_t seq = 0;
+    while (true) {
+        uint8_t payload[4];
+        payload[0] = 0xAA;
+        payload[1] = 0xBB;
+        payload[2] = seq;
+        payload[3] = static_cast<uint8_t>(seq + 1);
+        proto.send_frame(payload, sizeof(payload));
+
+        uint8_t rx_buf[128];
+        std::size_t rx_len = sizeof(rx_buf);
+        if (proto.recv_frame(rx_buf, rx_len)) {
+            for (std::size_t i = 0; i < rx_len; ++i) {
+                uart_putchar(static_cast<char>(rx_buf[i]));
+            }
+            uart_putchar('\n');
+        }
+
+        ++seq;
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+}
+
 int main() {
-    // We created the tasks with identical priorities
     xTaskCreate(led_task, "LED", configMINIMAL_STACK_SIZE, nullptr, 1, nullptr);
     xTaskCreate(echo_task, "ECHO", configMINIMAL_STACK_SIZE, nullptr, 1, nullptr);
+    xTaskCreate(rs485_task, "RS485", 256, nullptr, 1, nullptr);
     
-    // The scheduler starts and control passes to the threads
     vTaskStartScheduler();
     
-    //If the planner started, we'd never get here.
     while (true) { }
 }

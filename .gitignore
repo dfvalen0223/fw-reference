@@ -67,8 +67,11 @@ coverage.info
 
 # Build directories
 build/
+build-arm/
+rp2040-build/
 cmake-build-*/
 out/
+
 
 # CMake generated files
 CMakeFiles/

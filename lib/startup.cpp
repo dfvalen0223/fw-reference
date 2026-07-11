@@ -5,6 +5,7 @@ extern "C" {
     extern uint32_t _sdata, _edata, _sidata;
     extern uint32_t _sbss, _ebss;
     extern int main(void);
+    extern void SystemInit(void);
     void Reset_Handler(void);
     void Default_Handler(void) { while (1) ; }
     // FreeRTOS Handlers
@@ -35,6 +36,7 @@ extern "C" void Reset_Handler(void) {
         *dst++ = *src++;
     for (uint32_t *dst = &_sbss; dst < &_ebss;)
         *dst++ = 0;
+    SystemInit();
     main();
     while (1) ;
 }

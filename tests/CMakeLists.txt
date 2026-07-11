@@ -23,6 +23,8 @@ if(NOT CMAKE_CROSSCOMPILING)
 	add_executable(unit_tests
 	    test_crc16.cpp
 	    test_telemetry_protocol.cpp
+	    test_cobs.cpp
+	    test_rs485_protocol.cpp
 	)
 
 	# Mock headers live under src/, tests need to find them

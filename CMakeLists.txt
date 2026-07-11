@@ -93,7 +93,11 @@ target_include_directories(hal_interface INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/i
 
 # ---- Drivers library (compiled; depends on HAL interfaces) ----
 # Compile FileName.cpp and creates drivers.a file, that it'll use for main.cpp
-add_library(drivers STATIC src/drivers/telemetry_protocol.cpp)
+add_library(drivers STATIC
+    src/drivers/telemetry_protocol.cpp
+    src/drivers/rs485_protocol.cpp
+    src/util/cobs.cpp
+)
 target_link_libraries(drivers PUBLIC hal_interface)
 
 
@@ -107,7 +111,13 @@ if(CMAKE_CROSSCOMPILING)
 
     add_executable(firmware.elf
         src/app/main_blinky.cpp
+        src/hal/lpc1768/rs485_lpc1768.cpp
         lib/startup.cpp
+        lib/clock_config.cpp
+    )
+
+    target_include_directories(firmware.elf PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
     )
 
     target_link_libraries(firmware.elf PRIVATE
@@ -123,6 +133,11 @@ if(CMAKE_CROSSCOMPILING)
 
     set_target_properties(firmware.elf PROPERTIES
         SUFFIX ""
+    )
+
+    add_custom_command(TARGET firmware.elf POST_BUILD
+        COMMAND ${CMAKE_OBJCOPY} -O binary firmware.elf firmware.bin
+        COMMENT "Generating firmware.bin"
     )
 else()
     message(STATUS ">>> Host build: unit tests (no hardware)")

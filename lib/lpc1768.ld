@@ -37,4 +37,7 @@ SECTIONS
     } > SRAM
 
     _estack = ORIGIN(SRAM) + LENGTH(SRAM);
+
+    _end = _ebss;
+    end = _ebss;
 }
