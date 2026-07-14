@@ -28,19 +28,22 @@
 #define U0_THR       REG32(0x4000C000)
 #define U0_RBR       REG32(0x4000C000)
 
+// PLL0 status register
+#define PLL0STAT     REG32(0x400FC088)
+#define PLL0_CONNECTED (1 << 25)
+
 #define LED_PIN 18
 
 void uart_init() {
-    // 1. Configure UART0's PCLK to use the full, undivided clock (96 MHz)
-    // Clear bits 7 and 6 (~0xC0) and set bit 6 (|0x40) to write the pattern '01'
-    PCLKSEL0 = (PCLKSEL0 & ~0xC0) | 0x40;
+    // PCLK left at reset default CCLK/4 = 24 MHz (PCLKSEL not used —
+    // unreliable on this part). UART0 is powered at reset (PCONP bit 3).
 
-    // 2. Configure P0.2 as TXD0 and P0.3 as RXD0
+    // Configure P0.2 as TXD0 and P0.3 as RXD0
     PINSEL0 = (PINSEL0 & ~0xF0) | 0x50;
-    
-    // 3. Baud Setting 
+
+    // 115200 baud: 24,000,000 / (16 * 115200) = 13.02 -> DL=13 (+0.16%)
     U0_LCR = 0x83; // Enable DLAB (Divisor Latch Access Bit)
-    U0_DLL = 52;   // Exact divisor: 96,000,000 / (16 * 115200) = 52.08 -> Rounded to 52
+    U0_DLL = 13;
     U0_DLM = 0;
     U0_LCR = 0x03; // Disables DLAB, sets 8 bits, no parity, 1 stop bit (8N1)
     U0_FCR = 0x01; // Enables FIFO
@@ -80,6 +83,15 @@ void led_task(void*) {
 
 void echo_task(void*) {
     uart_init();
+    const char* pll = (PLL0STAT & PLL0_CONNECTED) ? "96 MHz" : "4 MHz IRC";
+    uart_putchar('[');
+    for (const char* p = pll; *p; ++p) uart_putchar(*p);
+    uart_putchar(']');
+    uart_putchar(' ');
+    const char boot_msg[] = "FW OK\r\n";
+    for (const char* p = boot_msg; *p; ++p) {
+        uart_putchar(*p);
+    }
     while (true) {
         if (uart_has_data()) {
             char c = uart_raw_getchar();

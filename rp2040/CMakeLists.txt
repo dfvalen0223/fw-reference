@@ -15,10 +15,13 @@ add_executable(echo_responder
     echo_responder.cpp
 )
 
+pico_generate_pio_header(echo_responder ${CMAKE_CURRENT_LIST_DIR}/ws2812.pio)
+
 target_link_libraries(echo_responder
     pico_stdlib
     hardware_uart
     hardware_gpio
+    hardware_pio
 )
 
 pico_add_extra_outputs(echo_responder)
@@ -26,3 +29,25 @@ pico_add_extra_outputs(echo_responder)
 target_compile_options(echo_responder PRIVATE
     -Wall -Wextra
 )
+
+# ---- Protocol responder: speaks Rs485Protocol (COBS+CRC+ACK) ----
+add_executable(protocol_responder
+    protocol_responder.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/../src/util/cobs.cpp
+)
+
+pico_generate_pio_header(protocol_responder ${CMAKE_CURRENT_LIST_DIR}/ws2812.pio)
+
+target_include_directories(protocol_responder PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}/../include
+)
+
+target_link_libraries(protocol_responder
+    pico_stdlib
+    hardware_uart
+    hardware_gpio
+    hardware_pio
+)
+
+pico_add_extra_outputs(protocol_responder)
+

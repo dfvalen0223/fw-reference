@@ -1,3 +1,26 @@
+// LPC1768 clock setup: 12 MHz crystal -> PLL0 -> 96 MHz CCLK.
+//
+// Register map per UM10360 chapter 4 (System control):
+//   SCS       0x1A0  main oscillator enable/status
+//   CLKSRCSEL 0x10C  PLL0 source select
+//   PLL0*     0x080+ PLL0 control/config/status/feed
+//   CCLKCFG   0x104  CPU clock divider
+//   FLASHCFG  0x000  flash accelerator timing (FLASHTIM = bits 15:12)
+//
+// PLL0 constraints (UM10360 §4.5): FCCO must be 275–550 MHz.
+//   M = 12, N = 1: FCCO = 2*M*Fosc/N = 2*12*12/1 = 288 MHz  (in range)
+//   CCLKCFG = 2 (divide by 3): CCLK = 288/3 = 96 MHz
+//
+// Peripheral clocks are left at reset default PCLK = CCLK/4 = 24 MHz.
+// (PCLKSEL writes are deliberately avoided; UART divisors elsewhere
+// assume 24 MHz.)
+//
+// Every PLL wait is timeout-guarded; on failure the firmware runs
+// (slowly) instead of hanging, at whichever clock was already active:
+//   - crystal never starts     -> 4 MHz IRC  (CLKSRCSEL untouched)
+//   - crystal ok, PLL no lock  -> 12 MHz raw crystal (CLKSRCSEL=1, PLL0 disconnected)
+//   - locked, never connects   -> 12 MHz raw crystal (PLL0 explicitly disabled)
+
 #include <stdint.h>
 
 #define SYSCON_BASE 0x400FC000UL
@@ -7,16 +30,22 @@ static inline volatile uint32_t &REG(uint32_t off) {
 }
 
 #define FLASHCFG    REG(0x000)
-#define CLKSRCSEL   REG(0x010)
-#define OSCTRIM     REG(0x01C)
-#define SYSOSCCTRL  REG(0x020)
 #define PLL0CON     REG(0x080)
 #define PLL0CFG     REG(0x084)
 #define PLL0STAT    REG(0x088)
 #define PLL0FEED    REG(0x08C)
 #define CCLKCFG     REG(0x104)
-#define PCLKSEL0    REG(0x1A8)
-#define PCLKSEL1    REG(0x1AC)
+#define CLKSRCSEL   REG(0x10C)
+#define SCS         REG(0x1A0)
+
+// SCS bits
+#define SCS_OSCEN   (1u << 5)
+#define SCS_OSCSTAT (1u << 6)
+
+// PLL0STAT bits
+#define PLOCK0      (1u << 26)
+#define PLLC0_STAT  (1u << 25)
+#define PLLE0_STAT  (1u << 24)
 
 #define DSB __asm volatile("dsb" ::: "memory")
 #define ISB __asm volatile("isb" ::: "memory")
@@ -30,52 +59,69 @@ static void pll_feed(void) {
 }
 
 extern "C" void SystemInit(void) {
-    // 1. Enable main oscillator (12 MHz crystal), no bypass
-    SYSOSCCTRL = 0;
+    // 1. Enable main oscillator (12 MHz crystal, OSCRANGE=0 for 1–20 MHz)
+    SCS |= SCS_OSCEN;
     DSB;
 
-    // Wait for oscillator to stabilize (~1 ms at 4 MHz = ~4000 cycles)
-    for (volatile uint32_t i = 0; i < 200000; i++) {
-        __asm volatile("nop");
+    // 3 Safety actions (A, B, and C)
+    // A. Safety Action: Wait for oscillator ready, with timeout (no crystal -> stay on IRC)
+    uint32_t osc_ok = 0;
+    for (volatile uint32_t i = 0; i < 1000000; i++) {
+        if (SCS & SCS_OSCSTAT) { osc_ok = 1; break; }
     }
+    if (!osc_ok) return;  // fall back to 4 MHz IRC
 
-    // 2. Select main oscillator as PLL0 clock source
+    // 2. Select main oscillator as PLL0 source
     CLKSRCSEL = 1;
     DSB;
 
-    // 3. Set CPU clock divider to 1 (before PLL change)
-    CCLKCFG = 0;
-    DSB;
-
-    // 4. Configure PLL0:
-    //    Crystal = 12 MHz, target CCLK = 96 MHz
-    //    MSEL=7 (M=8), PSEL=0 (P=1), NSEL=0 (N=1)
-    //    FCCO = 2 * M * Fosc / N = 2 * 8 * 12 / 1 = 192 MHz ✓
-    //    CCLK = FCCO / (2 * P) = 192 / (2 * 1) = 96 MHz ✓
-    //    USB can use main osc or PLL1 separately
-    PLL0CFG = (7 << 0) | (0 << 5) | (0 << 8);
-    PLL0CON = 1;  // Enable PLL0 (not yet connected)
+    // 3. Configure PLL0: M=12 (MSEL=11), N=1 (NSEL=0) -> FCCO = 288 MHz
+    PLL0CFG = (11u << 0) | (0u << 16);
     pll_feed();
 
-    // 5. Wait for PLL0 lock
-    while (!(PLL0STAT & (1 << 26))) {
-        __asm volatile("nop");
-    }
-
-    // 6. Set FLASH wait states for 96 MHz (5 cycles: 96/20 = 4.8 → round up)
-    FLASHCFG = (FLASHCFG & ~0x0F00) | (5 << 8);
-    DSB;
-
-    // 7. Connect PLL0 as system clock
-    PLL0CON = 3;  // Enable + Connect
+    // 4. (B. Safety Action) Enable PLL0 and wait for lock, with timeout
+    PLL0CON = 1;
     pll_feed();
-    while (!(PLL0STAT & (1 << 25))) {
-        __asm volatile("nop");
-    }
 
-    // 8. Set peripheral clocks: UART0 PCLK = CCLK
-    PCLKSEL1 = (PCLKSEL1 & ~(3 << 2)) | (1 << 2);
+    uint32_t lock_ok = 0;
+    for (volatile uint32_t i = 0; i < 1000000; i++) {
+        if (PLL0STAT & PLOCK0) { lock_ok = 1; break; }
+    }
+    // Fall back to sysclk unmultiplied: CLKSRCSEL was already set to the
+    // crystal above, PLL0 stays disconnected -> CCLK = 12 MHz raw crystal
+    // (not the 4 MHz IRC — that fallback only applies if the crystal
+    // itself never started, see the osc_ok check above).
+    if (!lock_ok) return;
+
+    // 5. CPU clock divider BEFORE connecting: 288 / 3 = 96 MHz
+    CCLKCFG = 2;
     DSB;
+
+    // 6. Flash accelerator: FLASHTIM (bits 15:12) = 4 -> 5 clocks, up to 100 MHz
+    FLASHCFG = (FLASHCFG & ~0xF000u) | (4u << 12);
+    DSB;
+
+    // 7. Connect PLL0 as system clock, with timeout (PLOCK0 already
+    // confirmed above, so this should be near-instant; guard anyway —
+    // an unprotected wait here would reintroduce the same hang class
+    // as the oscillator/lock waits above).
+    PLL0CON = 3;
+    pll_feed();
+
+    uint32_t connect_ok = 0;
+    for (volatile uint32_t i = 0; i < 1000000; i++) {
+        if ((PLL0STAT & (PLLC0_STAT | PLLE0_STAT)) == (PLLC0_STAT | PLLE0_STAT)) {
+            connect_ok = 1;
+            break;
+        }
+    }
+    if (!connect_ok) {
+        // Locked but never connected: disable PLL0 and fall back to the
+        // unmultiplied sysclk (12 MHz crystal) already selected above.
+        PLL0CON = 0;
+        pll_feed();
+        return;
+    }
 
     ISB;
 }

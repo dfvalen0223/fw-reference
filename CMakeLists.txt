@@ -139,6 +139,34 @@ if(CMAKE_CROSSCOMPILING)
         COMMAND ${CMAKE_OBJCOPY} -O binary firmware.elf firmware.bin
         COMMENT "Generating firmware.bin"
     )
+
+    # Helper: bare-metal target with linker script + .bin generation
+    function(add_baremetal_target NAME)
+        add_executable(${NAME}.elf ${ARGN})
+        target_link_options(${NAME}.elf PRIVATE
+            -T ${CMAKE_CURRENT_SOURCE_DIR}/lib/lpc1768.ld
+        )
+        set_target_properties(${NAME}.elf PROPERTIES SUFFIX "")
+        add_custom_command(TARGET ${NAME}.elf POST_BUILD
+            COMMAND ${CMAKE_OBJCOPY} -O binary ${NAME}.elf ${NAME}.bin
+            COMMENT "Generating ${NAME}.bin"
+        )
+    endfunction()
+
+    # ---- Minimal bring-up smoke test (no PLL, no FreeRTOS, no UART) ----
+    add_baremetal_target(blinky_minimal
+        tests/blinky_minimal.cpp
+    )
+
+    # ---- HIL test: RS-485 loopback vs RP2040 echo responder ----
+    # 96 MHz PLL + real HAL, UART2 @ 115200. LED1 = pass, LED4 = fail.
+    add_baremetal_target(rs485_test
+        tests/rs485_test.cpp
+        src/hal/lpc1768/rs485_lpc1768.cpp
+        lib/clock_config.cpp
+    )
+    target_include_directories(rs485_test.elf PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_link_libraries(rs485_test.elf PRIVATE drivers)
 else()
     message(STATUS ">>> Host build: unit tests (no hardware)")
     enable_testing()

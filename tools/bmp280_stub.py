@@ -58,5 +58,5 @@ def main():
         print(f" -> Structure: SOF={frame[0]:02X} | LEN={frame[1]:02X} | Payload={frame[2:6].hex().upper()} | CRC={frame[6:].hex().upper()}\n")
 
 
-if __name__ == "__main__": 
-main()
+if __name__ == "__main__":
+    main()
