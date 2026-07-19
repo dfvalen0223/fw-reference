@@ -21,6 +21,13 @@
   hardware against an RP2040 responder, signal-level validation with a logic analyzer
 - **RS-485 protocol stack** (COBS framing + CRC-16 + stop-and-wait ACK/retry),
   same encode/decode source compiled into both ends of the link
+- **MCP2515 CAN controller driver** over bit-banged SPI, validated both via
+  internal chip loopback and a real two-node physical CAN bus
+  (LPC1768 <-> RP2040-Zero, 125 kbps, One-Shot Mode) — signal-level
+  proof with a logic analyzer, see [docs/captures/README.md](docs/captures/README.md)
+- **Bit-banged SPI HAL** (LPC1768 + RP2040) — replaces the Pico SDK's
+  `hardware_spi` peripheral after it was proven to corrupt data on rapid
+  back-to-back short transfers
 - **CRC-16 cross-validator** in Python (100 random test vectors)
 - **BMP280 sensor stub** for pressure/temperature simulation
 
@@ -63,6 +70,29 @@ LPC1768 (96 MHz, FreeRTOS)                RP2040-Zero
   [docs/captures/](docs/captures/README.md) for the annotated capture
   showing the full DATA → ACK → DATA → ACK exchange and the DE
   (driver-enable) half-duplex arbitration
+
+## CAN Bus (MCP2515) HIL Testing
+
+Real two-node CAN bus, no simulated/loopback shortcuts:
+
+```
+LPC1768 (bit-bang SPI)              RP2040-Zero (bit-bang SPI)
+  MCP2515 #1  ── CANH/CANL ──────────  MCP2515 #2      125 kbps
+  (ID 0x200, TJA1050 @ 5V)             (ID 0x100, TJA1050 @ 5V)
+```
+
+- `src/drivers/mcp2515.cpp` — MCP2515 driver (register map, bit-timing
+  config, send/receive, One-Shot Mode), same source built for both ends
+- `tests/mcp2515_bus_test.cpp` (LPC1768) / `rp2040/can_node.cpp`
+  (RP2040) — each node sends an incrementing counter and reports
+  reception via LED/WS2812
+- `rp2040/can_loopback_test.cpp` — standalone MCP2515 internal-loopback
+  triage tool (no bus/transceiver dependency)
+- Getting the physical bus working required finding and fixing four
+  stacked hardware faults (bad transceiver, SPI SI/SO swap, CANH/CANL
+  swap, a module connector routing the termination resistor in series
+  instead of across the bus) — full writeup and logic-analyzer captures
+  in [docs/captures/README.md](docs/captures/README.md)
 
 ## Tools
 
