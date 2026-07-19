@@ -51,3 +51,50 @@ target_link_libraries(protocol_responder
 
 pico_add_extra_outputs(protocol_responder)
 
+# ---- CAN node: MCP2515 over SPI0, two-node real-bus HIL test ----
+add_executable(can_node
+    can_node.cpp
+    bitbang_spi_rp2040.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/../src/drivers/mcp2515.cpp
+)
+
+pico_generate_pio_header(can_node ${CMAKE_CURRENT_LIST_DIR}/ws2812.pio)
+
+target_include_directories(can_node PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}/../include
+    ${CMAKE_CURRENT_LIST_DIR}/../src
+)
+
+target_link_libraries(can_node
+    pico_stdlib
+    hardware_gpio
+    hardware_pio
+)
+
+pico_enable_stdio_usb(can_node 1)
+pico_enable_stdio_uart(can_node 0)
+
+pico_add_extra_outputs(can_node)
+
+# ---- Decisive triage: MCP2515 internal loopback, no transceiver/bus involved ----
+add_executable(can_loopback_test
+    can_loopback_test.cpp
+    bitbang_spi_rp2040.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/../src/drivers/mcp2515.cpp
+)
+
+pico_generate_pio_header(can_loopback_test ${CMAKE_CURRENT_LIST_DIR}/ws2812.pio)
+
+target_include_directories(can_loopback_test PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}/../include
+    ${CMAKE_CURRENT_LIST_DIR}/../src
+)
+
+target_link_libraries(can_loopback_test
+    pico_stdlib
+    hardware_gpio
+    hardware_pio
+)
+
+pico_add_extra_outputs(can_loopback_test)
+

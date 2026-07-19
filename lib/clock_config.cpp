@@ -58,6 +58,14 @@ static void pll_feed(void) {
     DSB;
 }
 
+// Diagnostic only: which fallback tier SystemInit() actually reached.
+// Not touched by firmware that doesn't care (defaults to 0, harmless).
+//   0 = not yet run / 1 = 4MHz IRC (crystal never started)
+//   2 = 12MHz raw crystal (PLL never locked)
+//   3 = 12MHz raw crystal (locked but never connected)
+//   4 = 96MHz full success
+extern "C" { volatile uint32_t g_clock_tier = 0; }
+
 extern "C" void SystemInit(void) {
     // 1. Enable main oscillator (12 MHz crystal, OSCRANGE=0 for 1–20 MHz)
     SCS |= SCS_OSCEN;
@@ -69,7 +77,7 @@ extern "C" void SystemInit(void) {
     for (volatile uint32_t i = 0; i < 1000000; i++) {
         if (SCS & SCS_OSCSTAT) { osc_ok = 1; break; }
     }
-    if (!osc_ok) return;  // fall back to 4 MHz IRC
+    if (!osc_ok) { g_clock_tier = 1; return; }  // fall back to 4 MHz IRC
 
     // 2. Select main oscillator as PLL0 source
     CLKSRCSEL = 1;
@@ -91,7 +99,7 @@ extern "C" void SystemInit(void) {
     // crystal above, PLL0 stays disconnected -> CCLK = 12 MHz raw crystal
     // (not the 4 MHz IRC — that fallback only applies if the crystal
     // itself never started, see the osc_ok check above).
-    if (!lock_ok) return;
+    if (!lock_ok) { g_clock_tier = 2; return; }
 
     // 5. CPU clock divider BEFORE connecting: 288 / 3 = 96 MHz
     CCLKCFG = 2;
@@ -120,8 +128,10 @@ extern "C" void SystemInit(void) {
         // unmultiplied sysclk (12 MHz crystal) already selected above.
         PLL0CON = 0;
         pll_feed();
+        g_clock_tier = 3;
         return;
     }
 
+    g_clock_tier = 4;
     ISB;
 }

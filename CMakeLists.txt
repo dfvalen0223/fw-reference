@@ -96,6 +96,7 @@ target_include_directories(hal_interface INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/i
 add_library(drivers STATIC
     src/drivers/telemetry_protocol.cpp
     src/drivers/rs485_protocol.cpp
+    src/drivers/mcp2515.cpp
     src/util/cobs.cpp
 )
 target_link_libraries(drivers PUBLIC hal_interface)
@@ -158,6 +159,13 @@ if(CMAKE_CROSSCOMPILING)
         tests/blinky_minimal.cpp
     )
 
+    # ---- Port 2 GPIO output test (no PLL, 4 MHz IRC) ----
+    # Port 0 outputs are dead on this chip; verifies Port 2 works for
+    # bit-banged SPI on p21-p26. Probe with logic analyzer.
+    add_baremetal_target(port2_test
+        tests/port2_test.cpp
+    )
+
     # ---- HIL test: RS-485 loopback vs RP2040 echo responder ----
     # 96 MHz PLL + real HAL, UART2 @ 115200. LED1 = pass, LED4 = fail.
     add_baremetal_target(rs485_test
@@ -167,6 +175,56 @@ if(CMAKE_CROSSCOMPILING)
     )
     target_include_directories(rs485_test.elf PRIVATE ${CMAKE_SOURCE_DIR}/src)
     target_link_libraries(rs485_test.elf PRIVATE drivers)
+
+    # ---- HIL test: MCP2515 internal loopback on bit-bang SPI ----
+    # 96 MHz PLL, bit-bang SPI @ 1 MHz on Port 2 (p21-p26),
+    # CAN loopback mode. LED1 = pass, LED4 = fail.
+    add_baremetal_target(mcp2515_loopback_test
+        tests/mcp2515_loopback_test.cpp
+        src/hal/lpc1768/bitbang_spi_lpc1768.cpp
+        src/drivers/mcp2515.cpp
+        lib/clock_config.cpp
+    )
+    target_include_directories(mcp2515_loopback_test.elf PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_link_libraries(mcp2515_loopback_test.elf PRIVATE hal_interface)
+
+    # ---- HIL test: MCP2515 <-> MCP2515 real two-node CAN bus ----
+    # Mode::NORMAL, counterpart to rp2040/can_node.cpp. LED1 = heard
+    # the RP2040, LED4 = didn't.
+    add_baremetal_target(mcp2515_bus_test
+        tests/mcp2515_bus_test.cpp
+        src/hal/lpc1768/bitbang_spi_lpc1768.cpp
+        src/drivers/mcp2515.cpp
+        lib/clock_config.cpp
+    )
+    target_include_directories(mcp2515_bus_test.elf PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_link_libraries(mcp2515_bus_test.elf PRIVATE hal_interface)
+
+    # ---- MCP2515 SPI probe: read CANCTRL after RESET, expect 0x87 ----
+    # LED1=0x87 (chip alive), LED2=0x00, LED3=0xFF (SO floating), LED4=other.
+    add_baremetal_target(mcp2515_probe_test
+        tests/mcp2515_probe_test.cpp
+        src/hal/lpc1768/bitbang_spi_lpc1768.cpp
+        lib/clock_config.cpp
+    )
+    target_include_directories(mcp2515_probe_test.elf PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_link_libraries(mcp2515_probe_test.elf PRIVATE hal_interface)
+
+    # ---- SPI debug: raw C bitbang with GPIO loopback on logic analyzer ----
+    # Sends 0xC0 (1 byte) then 3 bytes; connect CH0=SCK(p26), CH1=MOSI(p25),
+    # CH2=CS(p23). LED1 on after data, LED4 blinks at ~1 Hz.
+    # If 8 SCK pulses don't appear, the bug is fundamental (not class-related).
+    add_baremetal_target(spi_debug_test
+        tests/spi_debug_test.cpp
+    )
+
+    add_baremetal_target(sck_toggle_test
+        tests/sck_toggle_test.cpp
+    )
+
+    add_baremetal_target(sck_watchdog_test
+        tests/sck_watchdog_test.cpp
+    )
 else()
     message(STATUS ">>> Host build: unit tests (no hardware)")
     enable_testing()
