@@ -18,10 +18,10 @@ private:
     uint8_t cpha_{0};
     uint8_t pwron_loops_{0};
 
-    void set_sck(int v);
-    void set_mosi(int v);
-    int  get_miso();
-    void delay_half_period();
+    static void set_sck(int v);
+    static void set_mosi(int v);
+    static int  get_miso();
+    void delay_half_period() const;
 };
 
 }  // namespace hal::lpc1768

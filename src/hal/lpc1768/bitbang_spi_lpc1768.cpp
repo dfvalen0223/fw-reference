@@ -37,7 +37,7 @@ int BitbangSpiLpc1768::get_miso() {
     return (FIO2PIN & MISO_MASK) ? 1 : 0;
 }
 
-void BitbangSpiLpc1768::delay_half_period() {
+void BitbangSpiLpc1768::delay_half_period() const {
     volatile uint32_t n = delay_ns_;
     while (n--) { __asm volatile("nop"); }
 }
