@@ -42,7 +42,7 @@ int BitbangI2cLpc1768::sda_read() {
     return (FIO2PIN & SDA_MASK) ? 1 : 0;
 }
 
-bool BitbangI2cLpc1768::scl_release_and_wait() const {
+bool BitbangI2cLpc1768::scl_release_and_wait() {
     FIO2DIR &= ~SCL_MASK;  // release, pulled high externally
     uint32_t timeout = STRETCH_TIMEOUT_LOOPS;
     while (!(FIO2PIN & SCL_MASK)) {

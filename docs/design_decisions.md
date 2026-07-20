@@ -22,7 +22,7 @@ Ninja is 2-3x faster for incremental builds and handles CMake dependencies more 
 
 ## Why PLL0 at M=12, N=1 (FCCO = 288 MHz)?
 
-UM10360 requires the PLL0 oscillator (FCCO) to run between **275 and 550 MHz**. With a 12 MHz crystal, `FCCO = 2·M·Fosc/N = 2·12·12/1 = 288 MHz`, then `CCLK = 288/3 = 96 MHz` via CCLKCFG=2. An earlier configuration targeting FCCO = 192 MHz was below the legal range — the PLL never locked and boot hung. Every PLL wait loop now has a timeout with graceful fallback to the 4 MHz internal RC oscillator, so a missing/dead crystal degrades performance instead of bricking boot.
+UM10360 (PDF File) requires the PLL0 oscillator (FCCO) to run between **275 and 550 MHz**. With a 12 MHz crystal, `FCCO = 2·M·Fosc/N = 2·12·12/1 = 288 MHz`, then `CCLK = 288/3 = 96 MHz` via CCLKCFG=2. An earlier configuration targeting FCCO = 192 MHz was below the legal range — the PLL never locked and boot hung. Every PLL wait loop now has a timeout with fallback to the 4 MHz internal RC oscillator, so a missing/dead crystal degrades performance instead of bricking boot.
 
 ## Why peripheral clocks stay at the reset default (CCLK/4)?
 

@@ -32,7 +32,7 @@ private:
     static void scl_low();
     // Releases SCL and waits (with clock stretching) for it to read high.
     // Returns false on timeout (stuck-low bus).
-    bool scl_release_and_wait() const;
+    static bool scl_release_and_wait();
     static int sda_read();
 
     void start() const;
