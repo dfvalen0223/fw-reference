@@ -210,6 +210,15 @@ if(CMAKE_CROSSCOMPILING)
     target_include_directories(mcp2515_probe_test.elf PRIVATE ${CMAKE_SOURCE_DIR}/src)
     target_link_libraries(mcp2515_probe_test.elf PRIVATE hal_interface)
 
+    # ---- HIL probe: bit-bang I2C, read BMP280 CHIP_ID (expect 0x58) ----
+    add_baremetal_target(i2c_probe_test
+        tests/i2c_probe_test.cpp
+        src/hal/lpc1768/bitbang_i2c_lpc1768.cpp
+        lib/clock_config.cpp
+    )
+    target_include_directories(i2c_probe_test.elf PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_link_libraries(i2c_probe_test.elf PRIVATE hal_interface)
+
     # ---- SPI debug: raw C bitbang with GPIO loopback on logic analyzer ----
     # Sends 0xC0 (1 byte) then 3 bytes; connect CH0=SCK(p26), CH1=MOSI(p25),
     # CH2=CS(p23). LED1 on after data, LED4 blinks at ~1 Hz.
