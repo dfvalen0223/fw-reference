@@ -28,23 +28,23 @@
 
 ```
                          ┌───────────────────────────┐
-                         │   Logic Analyzer (Saleae)  │
-                         │  signal-level verification  │
-                         └────┬───────────┬───────────┘
+                         │   Logic Analyzer (Saleae) │
+                         │ signal-level verification │
+                         └────┬───────────┬──────────┘
                               │           │
         ┌─────────────────────▼───┐   ┌───▼─────────────────────┐
-        │   LPC1768 (96 MHz)       │   │   RP2040-Zero #1         │
-        │   FreeRTOS               │   │   RS-485 protocol        │
-        │                          │◄──┤   responder               │
-        │  UART2 ── RS-485 ────────┘   │   (COBS+CRC16+ACK)        │
-        │                          │   └───────────────────────────┘
-        │  Port2 (bit-bang SPI) ───┐
-        │  ── MCP2515 #1 (CAN)     │   ┌───────────────────────────┐
-        │     ID 0x200             │   │   RP2040-Zero #2           │
-        │                          │   │   CAN node                │
-        │  P2.4/P2.5 (bit-bang I2C)│   │   MCP2515 #2 (ID 0x100)   │
-        │  ── BMP280 (planned)     │◄──┤   bit-bang SPI              │
-        └──────────────────────────┘   └───────────────────────────┘
+        │   LPC1768 (96 MHz)      │   │   RP2040-Zero #1        │
+        │   FreeRTOS              │   │   RS-485 protocol       │
+        │                         │◄──┤   responder             │
+        │  UART2 ── RS-485 ───────┘   │   (COBS+CRC16+ACK)      │
+        │                         │   └─────────────────────────┘
+        │  Port2 (bit-bang SPI) ──┐
+        │  ── MCP2515 #1 (CAN)    │   ┌───────────────────────────┐
+        │     ID 0x200            │   │   RP2040-Zero #2          │
+        │                         │   │   CAN node                │
+        │ P2.4/P2.5 (bit-bang I2C)│   │   MCP2515 #2 (ID 0x100)   │
+        │ ── BMP280 (planned)     │◄──┤   bit-bang SPI            │
+        └─────────────────────────┘   └───────────────────────────┘
              CANH/CANL ── real physical 125 kbps bus, both ends
 ```
 
