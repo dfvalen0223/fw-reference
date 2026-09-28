@@ -35,28 +35,33 @@ import re
 import string
 import subprocess
 import sys
-import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+from base_plan import BasePlan, BaseSegment, plan_base
+from features import PORT_KIND_GLAND, choose_label, choose_port, port_rect, rect_around
+from manual import write_manual
+from geom import (Loop, Pt, axis_edges, bridge_ribs, choose_cuts, dist_to_outline, glyph_loops, inside,
+                  outer_loops, scad_str, segments)
+
 SCRIPT_DIR = Path(__file__).resolve().parent
 PART_SCAD = SCRIPT_DIR / "part.scad"
-LETTER_SCAD = SCRIPT_DIR / "channel_letter.scad"
 FIRMWARE_CONFIG = SCRIPT_DIR.parent / "firmware" / "main" / "letters_config.h"
+KCONFIG = SCRIPT_DIR.parent / "firmware" / "main" / "Kconfig.projbuild"
 
 # Must match the defaults in channel_letter.scad / lib/snap_fit.scad.
 COLLAR_H = 10.0
 TONGUE_LEN = 5.0
 SOCKET_R = (12.2 + 2 * 1.6) / 2       # pixel socket outer radius
 PAD_HALF_DIAG = math.hypot(7, 9)      # rigging pad 14 x 18 mm
-CUT_EDGE_CLEARANCE = 20.0             # min distance from a cut to a parallel glyph edge
+CUT_EDGE_CLEARANCE = 40.0             # min distance from a cut to a parallel glyph edge
 LETTER_SPACING = 0.12                 # gap between letters, fraction of height
+BASE_GAP = 5.0                        # min gap between neighbouring plinths, mm
 PIXEL_MAX_A = 0.060                   # WS2812B at full white
-
-Pt = tuple[float, float]
-Loop = list[Pt]
-
+PSU_SIZES_A = (2, 3, 4, 5, 6, 8, 10, 15, 20)
+PSU_BUDGET = 0.8                      # firmware keeps each letter under 80 % of its supply
+MAX_OUTPUTS = 16                      # parallel LCD-bus lanes on the ESP32-S3
 
 @dataclass
 class Params:
@@ -74,6 +79,8 @@ class Params:
     joint_clearance: float = 0.18
     pixel_lead: float = 100.0   # wire length between pixels on the string
     rig_pitch: float = 150.0
+    stand: bool = True          # freestanding plinth under each letter
+    tip_angle: float = 15.0     # minimum tip-over angle the plinth must give
 
     @property
     def tile_max(self) -> float:
@@ -102,12 +109,18 @@ class TileJob:
     leds: list[Pt] = field(default_factory=list)
     rigs: list[Pt] = field(default_factory=list)
     ribs: list[tuple[float, float, float, float]] = field(default_factory=list)
+    port: tuple[float, float, int] | None = None
+    label_pt: tuple[float, float, float] | None = None
     carcaza_file: str = ""
     diffusor_file: str = ""
 
     @property
     def tag(self) -> str:
         return f"r{self.row}c{self.col}"
+
+    @property
+    def label(self) -> str:
+        return f"{self.letter} {self.tag}"
 
 
 @dataclass
@@ -118,144 +131,12 @@ class GlyphPlan:
     x1: float
     extensions: list[dict]   # {"after_pixel", "length_mm", "route"}
     outline: list[Loop] = field(default_factory=list)
+    base: BasePlan | None = None
+    port: tuple[float, float, int] | None = None
+    notes: list[str] = field(default_factory=list)   # special notes for the manual (Spanish)
 
 
-# ---- 2D glyph analysis ---------------------------------------------------
-
-def scad_str(s: str) -> str:
-    return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
-
-
-def glyph_loops(p: Params, ch: str, rect: tuple[float, float, float, float] | None = None) -> list[Loop]:
-    """Export the glyph (optionally clipped to rect=(x0,x1,y0,y1)) as SVG and
-    return its closed loops."""
-    shape = f"glyph_2d({scad_str(ch)}, {p.letter_height}, {scad_str(p.font)})"
-    if rect is not None:
-        x0, x1, y0, y1 = rect
-        shape = f"intersection() {{ {shape}; translate([{x0}, {y0}]) square([{x1 - x0}, {y1 - y0}]); }}"
-    with tempfile.TemporaryDirectory() as td:
-        scad = Path(td) / "slice.scad"
-        svg = Path(td) / "slice.svg"
-        scad.write_text(f"include <{LETTER_SCAD}>\n{shape};\n")
-        r = subprocess.run(["openscad", "-o", str(svg), str(scad)], capture_output=True, text=True)
-        if not svg.exists():
-            if "top level object is empty" in r.stderr or "not a 2D object" in r.stderr:
-                return []
-            raise RuntimeError(f"openscad 2D slice failed for {ch!r}:\n{r.stderr}")
-        text = svg.read_text()
-    loops: list[Loop] = []
-    for d in re.findall(r'd="([^"]*)"', text):
-        for sub in d.split("M"):
-            pts = [(float(x), -float(y)) for x, y in re.findall(r"(-?[\d.e+-]+),(-?[\d.e+-]+)", sub)]
-            if len(pts) >= 3:
-                loops.append(pts)
-    return loops
-
-
-def segments(loops: list[Loop]) -> list[tuple[Pt, Pt]]:
-    return [(loop[i], loop[(i + 1) % len(loop)]) for loop in loops for i in range(len(loop))]
-
-
-def inside(pt: Pt, segs: list[tuple[Pt, Pt]]) -> bool:
-    x, y = pt
-    hit = False
-    for (x1, y1), (x2, y2) in segs:
-        if (y1 > y) != (y2 > y) and x1 + (y - y1) * (x2 - x1) / (y2 - y1) > x:
-            hit = not hit
-    return hit
-
-
-def dist_to_outline(pt: Pt, segs: list[tuple[Pt, Pt]]) -> float:
-    px, py = pt
-    best = math.inf
-    for (x1, y1), (x2, y2) in segs:
-        dx, dy = x2 - x1, y2 - y1
-        L2 = dx * dx + dy * dy
-        t = 0.0 if L2 == 0 else max(0.0, min(1.0, ((px - x1) * dx + (py - y1) * dy) / L2))
-        best = min(best, math.hypot(px - x1 - t * dx, py - y1 - t * dy))
-    return best
-
-
-def outer_loops(loops: list[Loop]) -> list[Loop]:
-    """Island boundaries: loops nested inside an even number of other loops
-    (the rest are holes)."""
-    return [loop for i, loop in enumerate(loops)
-            if sum(1 for j, o in enumerate(loops) if j != i and inside(loop[0], segments([o]))) % 2 == 0]
-
-
-def closest_points(a: Loop, b: Loop) -> tuple[float, Pt, Pt]:
-    """Closest pair of points between two polygon boundaries."""
-    def seg_point(p0: Pt, s: tuple[Pt, Pt]) -> Pt:
-        (x1, y1), (x2, y2) = s
-        dx, dy = x2 - x1, y2 - y1
-        L2 = dx * dx + dy * dy
-        t = 0.0 if L2 == 0 else max(0.0, min(1.0, ((p0[0] - x1) * dx + (p0[1] - y1) * dy) / L2))
-        return (x1 + t * dx, y1 + t * dy)
-    best = (math.inf, a[0], b[0])
-    for src, dst, flip in ((a, b, False), (b, a, True)):
-        for v in src:
-            for sgm in segments([dst]):
-                q = seg_point(v, sgm)
-                d = math.dist(v, q)
-                if d < best[0]:
-                    best = (d, q, v) if flip else (d, v, q)
-    return best
-
-
-def bridge_ribs(band: list[Loop], reach: float = 4.0) -> list[tuple[float, float, float, float]]:
-    """Minimum spanning tree of straight ribs joining every island of a tile,
-    each rib running `reach` mm into both islands so it fuses with them."""
-    isl = outer_loops(band)
-    if len(isl) < 2:
-        return []
-    joined, ribs = {0}, []
-    while len(joined) < len(isl):
-        _, pa, pb, j = min((closest_points(isl[i], isl[k]) + (k,)
-                            for i in joined for k in range(len(isl)) if k not in joined),
-                           key=lambda c: c[0])
-        L = max(math.dist(pa, pb), 1e-6)
-        ux, uy = (pb[0] - pa[0]) / L, (pb[1] - pa[1]) / L
-        ribs.append((round(pa[0] - ux * reach, 2), round(pa[1] - uy * reach, 2),
-                     round(pb[0] + ux * reach, 2), round(pb[1] + uy * reach, 2)))
-        joined.add(j)
-    return ribs
-
-
-def axis_edges(loops: list[Loop], axis: int) -> list[float]:
-    """Glyph edges parallel to a cut on `axis`: horizontal edges (their y) for
-    axis=1, vertical edges (their x) for axis=0."""
-    return [a[axis] for a, b in segments(loops)
-            if abs(a[axis] - b[axis]) < 0.05 and abs(a[1 - axis] - b[1 - axis]) > 1.0]
-
-
-def choose_cuts(lo: float, hi: float, max_len: float, edges: list[float]) -> tuple[list[float], list[str]]:
-    """Uniform cuts over lo..hi, each nudged (up to +-60 mm) to the feasible
-    position farthest from any parallel glyph edge, while every tile stays
-    <= max_len and a feasible split of the rest remains."""
-    n = max(1, math.ceil((hi - lo) / max_len))
-    cuts, warnings = [lo], []
-    for k in range(1, n):
-        nominal = lo + (hi - lo) * k / n
-        best, best_score = None, -1.0
-        for off in range(-60, 61):
-            cand = nominal + off
-            if not (CUT_EDGE_CLEARANCE < cand - cuts[-1] <= max_len):
-                continue
-            if hi - cand > max_len * (n - k):
-                continue
-            clear = min((abs(cand - e) for e in edges), default=math.inf)
-            # Prefer enough clearance first, then staying close to uniform.
-            score = min(clear, CUT_EDGE_CLEARANCE) * 1000 - abs(off)
-            if score > best_score:
-                best, best_score = cand, score
-        if best is None:
-            best = min(nominal, cuts[-1] + max_len)
-        if min((abs(best - e) for e in edges), default=math.inf) < CUT_EDGE_CLEARANCE:
-            warnings.append(f"cut at {best:.1f}mm is within {CUT_EDGE_CLEARANCE:.0f}mm of a glyph edge")
-        cuts.append(best)
-    cuts.append(hi)
-    return cuts, warnings
-
+# ---- glyph planning --------------------------------------------------------
 
 def candidate_grid(segs, x0, x1, y0, y1, step, min_d) -> list[tuple[float, Pt]]:
     """(distance-to-outline, point) for grid points inside the glyph with at
@@ -409,8 +290,8 @@ def plan_glyph(p: Params, ch: str) -> tuple[GlyphPlan | None, list[str]]:
     # Round letters (O, S, C...) overshoot the baseline, so use the real extent.
     gy0, gy1 = min(ys), max(ys)
     m = 1.0  # keep outer tile edges clear of the outline
-    xcuts, wx = choose_cuts(gx0 - m, gx1 + m, p.tile_max, axis_edges(full, 0))
-    ycuts, wy = choose_cuts(gy0 - m, gy1 + m, p.tile_max, axis_edges(full, 1))
+    xcuts, wx = choose_cuts(gx0 - m, gx1 + m, p.tile_max, axis_edges(full, 0), CUT_EDGE_CLEARANCE)
+    ycuts, wy = choose_cuts(gy0 - m, gy1 + m, p.tile_max, axis_edges(full, 1), CUT_EDGE_CLEARANCE)
     warnings = [f"{ch!r}: {w}" for w in wx + wy]
 
     led_min_d = SOCKET_R + p.wall_t + 0.6
@@ -474,10 +355,58 @@ def plan_glyph(p: Params, ch: str) -> tuple[GlyphPlan | None, list[str]]:
             if not fits:
                 warnings.append(f"{ch!r} tile {tile.tag}: {w:.0f}x{h:.0f}x{p.depth:.0f}mm does not fit "
                                 f"the {p.bed_x:.0f}x{p.bed_y:.0f}x{p.bed_z:.0f}mm build volume")
+    notes: list[str] = []
+    base = None
+    if p.stand:
+        base = plan_base(p, ch, full, gx0, gx1, gy0, p.tile_max, p.tip_angle)
+        notes += base.notes
+        for sg in base.segments:
+            if not sg.fits_bed:
+                warnings.append(f"{ch!r} base segment {sg.tag} does not fit the bed")
+
+    # Connection port: just above the plinth, near pixel 1.
+    rig_rects = [rect_around(r, 14, 18) for t in tiles for r in t.rigs]
+    y_min = gy0 + (base.seat + 8 if base else 10)
+    port = choose_port(cands, segs, p.wall_t, y_min, leds, SOCKET_R, rig_rects,
+                       xcuts, ycuts, chain[0] if chain else None)
+    if port is None:
+        warnings.append(f"{ch!r}: no room for the connection port")
+        notes.append("No hay lugar para el puerto de conexión: pasar los cables por uno de los agujeros "
+                     "de amarre y fijarlos con un precinto.")
+    else:
+        for t in tiles:
+            if t.x_lo <= port[0] < t.x_hi and t.y_lo <= port[1] < t.y_hi:
+                t.port = port
+        if port[2] == PORT_KIND_GLAND:
+            notes.append("Trazos angostos: en lugar de conectores de panel, esta letra tiene un agujero "
+                         "de 7 mm para sacar un cable corto con los conectores en la punta.")
+
+    # Tile codes on the back of every carcaza.
+    busy = rig_rects + ([port_rect(port)] if port else [])
+    for t in tiles:
+        t.label_pt = choose_label(t.label, (t.x_lo, t.x_hi, t.y_lo, t.y_hi), cands, segs, busy, leds)
+
     if extensions:
         warnings.append(f"{ch!r}: {len(extensions)} extension wire(s) needed where the string must "
                         f"run further than its {p.pixel_lead:.0f}mm lead (see assembly_*.svg / manifest)")
-    return GlyphPlan(tiles, chain, gx0, gx1, extensions, full), warnings
+        for e in extensions:
+            notes.append(f"Extensión de cable de {e['length_mm']} mm entre los píxeles {e['after_pixel']} y "
+                         f"{e['after_pixel'] + 1} (recorrido naranja en el mapa de píxeles).")
+    for t in tiles:
+        if t.ribs:
+            notes.append(f"La pieza {t.tag} tiene {t.islands} partes unidas por nervaduras finas en el dorso: "
+                         f"no cortarlas, mantienen la pieza en una sola. Su difusor sale en {t.islands} partes "
+                         f"separadas: cada una va en su zona.")
+        if min(t.size_mm) < 35:
+            notes.append(f"La pieza {t.tag} es angosta ({min(t.size_mm):.0f} mm): despegarla de la cama y "
+                         f"encastrarla con cuidado.")
+    for w_ in wx + wy:
+        notes.append(f"Un corte entre piezas quedó cerca de un borde de la letra ({w_.split('cut at ')[-1]}); "
+                     f"revisar bien esa costura al encastrar.")
+    if len(chain) > 100:
+        notes.append(f"{len(chain)} píxeles: además de la entrada, llevar 5 V y GND también al último píxel "
+                     f"(inyección) para que no bajen el brillo ni el color al final de la tira.")
+    return GlyphPlan(tiles, chain, gx0, gx1, extensions, full, base, port, notes), warnings
 
 
 @dataclass
@@ -498,9 +427,11 @@ def plan_word(p: Params) -> WordPlan:
     extension_count = 0
     cache: dict[str, GlyphPlan | None] = {}
     x_cursor = 0.0
+    prev_base_right = None   # right edge of the previous plinth, word coords
     for li, ch in enumerate(p.text):
         if ch.isspace():
             x_cursor += p.letter_height * 0.35
+            prev_base_right = None
             continue
         if ch not in cache:
             cache[ch], w = plan_glyph(p, ch)
@@ -508,15 +439,32 @@ def plan_word(p: Params) -> WordPlan:
         g = cache[ch]
         if g is None:
             continue
+        if g.base and prev_base_right is not None:
+            left = x_cursor + g.base.x0 - g.x0
+            if left < prev_base_right + BASE_GAP:
+                x_cursor += prev_base_right + BASE_GAP - left
+        if g.base:
+            prev_base_right = x_cursor + g.base.x1 - g.x0
         extension_count += len(g.extensions)
         slot = len(letters)
-        letters.append({"char": ch, "index": li, "first_led": len(led_map), "count": len(g.chain),
+        n = len(g.chain)
+        psu = next((a for a in PSU_SIZES_A if a >= n * PIXEL_MAX_A * 0.75), PSU_SIZES_A[-1])
+        letters.append({"char": ch, "index": li, "first_led": len(led_map), "count": n,
+                        "output": slot, "psu_a": psu, "max_ma": int(psu * 1000 * PSU_BUDGET),
+                        "x_center_mm": round(x_cursor + (g.x1 - g.x0) / 2),
+                        "port": g.port, "notes": list(g.notes),
                         "extensions": [{k: e[k] for k in ("after_pixel", "length_mm")} for e in g.extensions]})
         for x, y in g.chain:
             led_map.append((round(x_cursor + x - g.x0), round(y), slot))
         for t in g.tiles:
             tiles.append(TileJob(**{**asdict(t), "letter_index": li}))
         x_cursor += (g.x1 - g.x0) + p.letter_height * LETTER_SPACING
+    if len(letters) > MAX_OUTPUTS:
+        warnings.append(f"{len(letters)} letters but the controller drives at most {MAX_OUTPUTS} outputs")
+    # Controller sits behind the middle of the word; data cable = horizontal run + 1 m slack.
+    mid = (x_cursor - p.letter_height * LETTER_SPACING) / 2
+    for l in letters:
+        l["cable_m"] = math.ceil((abs(l["x_center_mm"] - mid) / 1000 + 1.0) * 2) / 2
     return WordPlan(tiles, letters, led_map, warnings, extension_count,
                     {k: v for k, v in cache.items() if v is not None})
 
@@ -544,7 +492,29 @@ def scad_defines(p: Params, job: TileJob, part: str) -> list[str]:
         "joint_clearance": p.joint_clearance,
         "leds": scad_points(job.leds),
         "rigs": scad_points(job.rigs),
+        "port": f"[{job.port[0]},{job.port[1]},{job.port[2]}]" if job.port else "[]",
+        "label": scad_str(job.label),
+        "label_pt": f"[{job.label_pt[0]},{job.label_pt[1]},{job.label_pt[2]}]" if job.label_pt else "[]",
         "part": scad_str(part),
+    }
+    out: list[str] = []
+    for k, v in defs.items():
+        out += ["-D", f"{k}={v}"]
+    return out
+
+
+def base_defines(p: Params, g: GlyphPlan, sg: BaseSegment) -> list[str]:
+    b = g.base
+    dts = lambda ds: "[" + ",".join(f"[{a},{c},{d},{e}]" for a, c, d, e in ds) + "]"  # noqa: E731
+    defs = {
+        "ch": scad_str(sg.letter), "font": scad_str(p.font),
+        "letter_height": p.letter_height, "depth": p.depth,
+        "seg": f"[{sg.sx0:.2f},{sg.sx1:.2f},{sg.sz0:.2f},{sg.sz1:.2f}]",
+        "gy0": b.gy0, "seat": b.seat, "lip": b.lip, "floor_t": b.floor_t,
+        "males": dts(sg.males), "females": dts(sg.females),
+        "label": scad_str(sg.label),
+        "label_pt": f"[{sg.label_pt[0]},{sg.label_pt[1]}]" if sg.label_pt else "[]",
+        "part": scad_str("base"),
     }
     out: list[str] = []
     for k, v in defs.items():
@@ -565,24 +535,30 @@ def safe_name(ch: str, letter_index: int) -> str:
     return f"{letter_index:02d}_{tag}"
 
 
-def build(p: Params, tiles: list[TileJob], output_dir: Path, jobs: int, fmt: str) -> None:
-    # Repeated letters produce identical parts: render each unique one once.
-    unique: dict[tuple, Path] = {}
-    tasks = []
-    for t in tiles:
-        for part in ("carcaza", "diffusor"):
-            key = (t.letter, t.tag, part)
-            if key not in unique:
-                unique[key] = output_dir / f"{safe_name(t.letter, t.letter_index)}_{t.tag}_{part}.{fmt}"
-                tasks.append((t, part, unique[key]))
+def assign_files(w: "WordPlan", fmt: str) -> None:
+    """Name every part up front; repeated letters share their files."""
+    first_index = {l["char"]: l["index"] for l in reversed(w.letters)}
+    for t in w.tiles:
+        stem = f"{safe_name(t.letter, first_index[t.letter])}_{t.tag}"
+        t.carcaza_file, t.diffusor_file = f"{stem}_carcaza.{fmt}", f"{stem}_diffusor.{fmt}"
+    for ch, g in w.glyphs.items():
+        for sg in (g.base.segments if g.base else []):
+            sg.file = f"{safe_name(ch, first_index[ch])}_base_{sg.tag}.{fmt}"
+
+
+def build(p: Params, w: "WordPlan", output_dir: Path, jobs: int) -> None:
+    tasks: dict[str, list[str]] = {}
+    for t in w.tiles:
+        tasks.setdefault(t.carcaza_file, scad_defines(p, t, "carcaza"))
+        tasks.setdefault(t.diffusor_file, scad_defines(p, t, "diffusor"))
+    for g in w.glyphs.values():
+        for sg in (g.base.segments if g.base else []):
+            tasks.setdefault(sg.file, base_defines(p, g, sg))
     with ThreadPoolExecutor(max_workers=jobs) as ex:
-        futures = {ex.submit(run_openscad, path, scad_defines(p, t, part)): path for t, part, path in tasks}
+        futures = {ex.submit(run_openscad, output_dir / f, args): f for f, args in tasks.items()}
         for fut in as_completed(futures):
             fut.result()
-            print(f"  ok  {futures[fut].name}")
-    for t in tiles:
-        t.carcaza_file = unique[(t.letter, t.tag, "carcaza")].name
-        t.diffusor_file = unique[(t.letter, t.tag, "diffusor")].name
+            print(f"  ok  {futures[fut]}")
 
 
 # ---- outputs ---------------------------------------------------------------
@@ -593,30 +569,53 @@ def internal_joints(tiles: list[TileJob]) -> int:
                for t in tiles)
 
 
+def base_segments(w: WordPlan) -> list[BaseSegment]:
+    """One entry per printed base segment (repeated letters repeat them)."""
+    return [sg for l in w.letters for sg in (w.glyphs[l["char"]].base.segments if w.glyphs[l["char"]].base else [])]
+
+
 def totals(p: Params, w: WordPlan) -> dict:
     n = len(w.led_map)
+    bases = base_segments(w)
     return {
         "letters": len(w.letters),
         "tiles": len(w.tiles),
-        "printed_parts": len(w.tiles) * 2,
+        "base_segments": len(bases),
+        "printed_parts": len(w.tiles) * 2 + len(bases),
         "pixels": n,
         "screws": 0,
         "snap_joints": internal_joints(w.tiles),
+        "base_dovetails": sum(len(sg.males) for sg in bases),
         "zip_tie_points": sum(len(t.rigs) for t in w.tiles),
-        "letter_to_letter_jst_sm_3pin": max(0, len(w.letters) - 1) + 1,
+        "controller_outputs": len(w.letters),
+        "power_supplies_5v_a": [l["psu_a"] for l in w.letters],
+        "data_cables_m": [l["cable_m"] for l in w.letters],
         "extension_wires_needed": w.extension_count,
         "amps_at_full_white_5v": round(n * PIXEL_MAX_A, 1),
     }
 
 
-def print_list(tiles: list[TileJob]) -> dict[str, int]:
+def print_list(w: WordPlan) -> dict[str, int]:
     """How many copies of each STL to print (repeated letters share files)."""
     out: dict[str, int] = {}
-    for t in tiles:
-        for f in (t.carcaza_file, t.diffusor_file):
-            if f:
-                out[f] = out.get(f, 0) + 1
+    files = [f for t in w.tiles for f in (t.carcaza_file, t.diffusor_file)] + [sg.file for sg in base_segments(w)]
+    for f in files:
+        if f:
+            out[f] = out.get(f, 0) + 1
     return out
+
+
+def base_summary(b: BasePlan | None) -> dict | None:
+    if b is None:
+        return None
+    return {
+        "size_mm": [round(b.x1 - b.x0), round(b.z1 - b.z0), round(b.height)],
+        "seat_mm": round(b.seat), "front_lip_mm": round(b.lip),
+        "tip_deg": {k: round(v, 1) for k, v in b.tip_deg.items()},
+        "cg_height_mm": round(b.cg[1]),
+        "segments": [{"tag": sg.tag, "file": sg.file, "dovetails_out": len(sg.males),
+                      "dovetails_in": len(sg.females), "fits_bed": sg.fits_bed} for sg in b.segments],
+    }
 
 
 def write_manifest(p: Params, w: WordPlan, output_dir: Path) -> Path:
@@ -624,8 +623,8 @@ def write_manifest(p: Params, w: WordPlan, output_dir: Path) -> Path:
         "params": asdict(p),
         "totals": totals(p, w),
         "warnings": w.warnings,
-        "letters": w.letters,
-        "print_list": print_list(w.tiles),
+        "letters": [{**l, "base": base_summary(w.glyphs[l["char"]].base)} for l in w.letters],
+        "print_list": print_list(w),
         "tiles": [{**asdict(t), "tag": t.tag, "led_count": len(t.leds)} for t in w.tiles],
     }
     path = output_dir / "manifest.json"
@@ -707,7 +706,7 @@ def c_char(ch: str) -> str:
 def write_firmware_config(p: Params, w: WordPlan, path: Path) -> None:
     width = max((x for x, _, _ in w.led_map), default=0)
     lines = [
-        "// AUTO-GENERATED by led-letters/cad/generate.py -- do not edit by hand.",
+        "// AUTO-GENERATED by cad/generate.py -- do not edit by hand.",
         f"// Source: text={p.text!r} letter_height={p.letter_height:.0f}mm led_pitch={p.led_pitch:.0f}mm",
         "// LEDs are listed in data-chain order: letters left to right, and inside",
         "// each letter in the order the pixel string visits the sockets.",
@@ -720,8 +719,12 @@ def write_firmware_config(p: Params, w: WordPlan, path: Path) -> None:
         f"#define LED_WORD_WIDTH_MM {int(width)}",
         f"#define LED_WORD_HEIGHT_MM {int(round(p.letter_height))}",
         "",
+        f"#define LED_OUTPUT_COUNT {len(w.letters)}",
+        "",
+        "// glyph, first LED, LED count, controller output (OUT n), current budget (mA)",
         "static const led_letter_t LED_LETTERS[LED_LETTER_COUNT] = {",
-        *[f"    {{ {c_char(l['char'])}, {l['first_led']}, {l['count']} }}," for l in w.letters],
+        *[f"    {{ {c_char(l['char'])}, {l['first_led']}, {l['count']}, {l['output']}, {l['max_ma']} }},"
+          for l in w.letters],
         "};",
         "",
         "static const led_pos_t LED_MAP[LED_TOTAL_COUNT] = {",
@@ -745,6 +748,10 @@ def main() -> int:
     ap.add_argument("--bed-x", type=float, default=220.0, help="print bed X, mm")
     ap.add_argument("--bed-y", type=float, default=220.0, help="print bed Y, mm")
     ap.add_argument("--bed-z", type=float, default=250.0, help="max print height, mm (limits depth)")
+    ap.add_argument("--no-stand", action="store_true",
+                    help="no freestanding plinth (letters hung or stuck to a wall)")
+    ap.add_argument("--tip-angle", type=float, default=15.0,
+                    help="minimum tip-over angle of a letter on its plinth, degrees")
     ap.add_argument("--no-bridge-islands", action="store_true",
                     help="leave disjoint islands in a tile as separate pieces")
     ap.add_argument("--font", default="Liberation Sans:style=Bold")
@@ -756,6 +763,8 @@ def main() -> int:
     ap.add_argument("--firmware-config", type=Path, default=FIRMWARE_CONFIG,
                     help="where to write letters_config.h")
     ap.add_argument("--no-firmware-config", action="store_true")
+    ap.add_argument("--no-manual", action="store_true", help="skip the assembly manual")
+    ap.add_argument("--chrome", help="Chromium/Chrome binary used to print the manual to PDF")
     args = ap.parse_args()
 
     if not 150 <= args.letter_height <= 1000:
@@ -766,6 +775,7 @@ def main() -> int:
                wall_t=args.wall_t, back_t=args.back_t,
                bed_x=args.bed_x, bed_y=args.bed_y, bed_z=args.bed_z,
                bridge_islands=not args.no_bridge_islands, font=args.font,
+               stand=not args.no_stand, tip_angle=args.tip_angle,
                joint_clearance=args.joint_clearance, pixel_lead=args.pixel_lead)
 
     out = args.output_dir
@@ -779,8 +789,9 @@ def main() -> int:
     for msg in w.warnings:
         print(f"  WARNING {msg}", file=sys.stderr)
 
+    assign_files(w, args.format)
     if not args.plan_only:
-        build(p, w.tiles, out, args.jobs, args.format)
+        build(p, w, out, args.jobs)
     write_manifest(p, w, out)
     write_bom(w, out)
     for ch, g in w.glyphs.items():
@@ -789,6 +800,12 @@ def main() -> int:
     if not args.no_firmware_config:
         write_firmware_config(p, w, args.firmware_config)
         print(f"Updated {args.firmware_config}")
+    if not args.no_manual:
+        kc = KCONFIG.read_text() if KCONFIG.exists() else ""
+        m = re.search(r'config LETTERS_OUT_GPIOS.*?default "([^"]+)"', kc, re.S)
+        html_path, pdf_path = write_manual(p, w, totals(p, w), print_list(w), out,
+                                           None if args.plan_only else out, m.group(1) if m else None, args.chrome)
+        print(f"Manual: {html_path}" + (f" + {pdf_path.name}" if pdf_path else " (no Chrome found for the PDF)"))
     tot = totals(p, w)
     print(f"Done: {tot['tiles']} tiles, {tot['printed_parts']} printed parts, {tot['pixels']} pixels, "
           f"{tot['snap_joints']} snap joints, 0 screws. Output: {out}")

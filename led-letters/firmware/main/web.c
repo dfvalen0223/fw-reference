@@ -46,6 +46,13 @@ static const char PAGE[] =
     "$('info').textContent=st.leds+' LEDs, ~'+(st.ma/1000).toFixed(1)+' A (limit '+(st.limit_ma/1000)+' A)'}),2000);"
     "</script></body></html>";
 
+static uint32_t total_limit_ma(void)
+{
+    uint32_t sum = 0;
+    for (size_t i = 0; i < s_layout->letter_count; i++) sum += s_layout->letters[i].max_ma;
+    return sum;
+}
+
 static esp_err_t send_state(httpd_req_t *req)
 {
     app_settings_t s = settings_get();
@@ -64,10 +71,10 @@ static esp_err_t send_state(httpd_req_t *req)
     char body[512];
     int len = snprintf(body, sizeof(body),
                        "{\"text\":\"%s\",\"effect\":\"%s\",\"effects\":[%s],\"color\":\"%02x%02x%02x\","
-                       "\"brightness\":%u,\"speed\":%u,\"leds\":%u,\"ma\":%lu,\"limit_ma\":%d}",
+                       "\"brightness\":%u,\"speed\":%u,\"leds\":%u,\"ma\":%lu,\"limit_ma\":%lu}",
                        text, fx_name(s.fx.effect), effects, s.fx.color.r, s.fx.color.g, s.fx.color.b,
                        s.brightness, s.fx.speed, (unsigned)s_layout->count,
-                       (unsigned long)settings_last_ma(), CONFIG_LETTERS_MAX_CURRENT_MA);
+                       (unsigned long)settings_last_ma(), (unsigned long)total_limit_ma());
     if (len < 0) return httpd_resp_send_500(req);
     if ((size_t)len >= sizeof(body)) len = sizeof(body) - 1;
     httpd_resp_set_type(req, "application/json");

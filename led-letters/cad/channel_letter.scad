@@ -101,6 +101,53 @@ module rigging_slots(pts, back_t, pad_t = 2.5, slot_w = 6, slot_h = 2.6, slot_ga
             cube([slot_w, slot_h, back_t + pad_t + 2]);
 }
 
+// Connection port on the back of one tile per letter. port = [x, y, kind]
+// (or [] for none):
+//   kind 0 / 1 : reinforcing pad with two panel-connector holes side by side
+//                (0) or stacked (1) -- a 5.5 x 2.1 mm DC jack for the letter's
+//                own 5 V supply and a GX12 3-pin socket for the data line.
+//   kind 2     : single cable-gland hole, for strokes too thin for the pair.
+PORT_SPACING = 24;
+function port_offset(port, i) =
+    port[2] == 0 ? [port[0] + (i - 0.5) * PORT_SPACING, port[1]]
+                 : [port[0], port[1] - (i - 0.5) * PORT_SPACING];
+
+module port_pad(port, back_t, t = 2) {
+    if (len(port) == 3 && port[2] < 2) {
+        wh = port[2] == 0 ? [50, 24] : [24, 50];
+        translate([port[0] - wh[0] / 2, port[1] - wh[1] / 2, back_t - 0.2])
+            cube([wh[0], wh[1], t + 0.2]);
+    }
+}
+
+module port_holes(port, back_t, t = 2, dc_d = 11.2, data_d = 12.2, gland_d = 7) {
+    if (len(port) == 3 && port[2] < 2) {
+        translate([each port_offset(port, 0), -1]) cylinder(d = dc_d, h = back_t + t + 2, $fn = 40);
+        translate([each port_offset(port, 1), -1]) cylinder(d = data_d, h = back_t + t + 2, $fn = 40);
+    } else if (len(port) == 3)
+        translate([port[0], port[1], -1]) cylinder(d = gland_d, h = back_t + 2, $fn = 24);
+}
+
+module port_labels(port) {
+    if (len(port) == 3 && port[2] < 2) {
+        d = port[2] == 0 ? [0, -13] : [-17, 0];
+        back_text(port_offset(port, 0) + d, "5V", size = 4.5);
+        back_text(port_offset(port, 1) + d, "DATOS", size = port[2] == 0 ? 4.5 : 3.2);
+    }
+}
+
+// Text debossed 0.6 mm into the back face (the face printed against the
+// bed), mirrored so it reads correctly from behind the letter. Used for the
+// tile code ("H r0c1") and the port labels.
+module back_text(pt, txt, size = 7, depth_t = 0.6) {
+    if (len(pt) >= 2 && len(txt) > 0)
+        translate([pt[0], pt[1], -1])
+            linear_extrude(height = 1 + depth_t)
+                mirror([1, 0, 0])
+                    text(txt, size = size, font = "Liberation Sans:style=Bold",
+                         halign = "center", valign = "center");
+}
+
 // ---- parts ---------------------------------------------------------------
 //
 // A letter is split into a grid of tiles [x_lo..x_hi] x [y_lo..y_hi] that
@@ -127,7 +174,7 @@ module carcaza_tile(ch, letter_height, depth, wall_t, back_t, font,
                      tongue_t1 = 1.8, tongue_t2 = 3.9, tongue_len = 5,
                      bead = 0.35, lead = 0.3, bead_y0 = 2.2, bead_y1 = 3.6,
                      joint_clearance = 0.18,
-                     leds = [], rigs = [],
+                     leds = [], rigs = [], port = [], label = "", label_pt = [],
                      rim_depth = 6, diffusor_bead = 0.7, rim_clearance = 0.25) {
     z0 = back_t;
     z1 = joint_z1(depth, rim_depth);
@@ -158,6 +205,7 @@ module carcaza_tile(ch, letter_height, depth, wall_t, back_t, font,
                     bridge_ribs(ribs, thickness = min(1.5, back_t));
                     rigging_pads(rigs, back_t);
                     pixel_sockets(leds, back_t);
+                    port_pad(port, back_t);
                 }
                 tile_box(x_lo, x_hi, y_lo, y_hi);
             }
@@ -180,6 +228,9 @@ module carcaza_tile(ch, letter_height, depth, wall_t, back_t, font,
                 glyph_2d(ch, letter_height, font);
         rigging_slots(rigs, back_t);
         pixel_service_holes(leds, back_t);
+        port_holes(port, back_t);
+        port_labels(port);
+        back_text(label_pt, label, size = len(label_pt) == 3 ? label_pt[2] : 7);
         // Snap groove for the diffuser rim bead.
         intersection() {
             diffusor_groove(wall_t, diffusor_bead - rim_clearance + 0.15,

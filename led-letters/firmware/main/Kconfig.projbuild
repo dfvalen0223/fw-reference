@@ -1,13 +1,29 @@
 menu "LED letters"
 
-    config LETTERS_DATA_GPIO
-        int "WS2812B data GPIO"
-        range 0 48
-        default 16
+    config LETTERS_OUT_GPIOS
+        string "Output GPIOs, OUT 1 first (comma separated)"
+        default "4,5,6,7,15,16,17,18,8,9,10,11,12,13,14,21"
         help
-            GPIO driving the pixel chain (through a 74AHCT125 level shifter and a
-            330 ohm series resistor). Avoid GPIO 48: on many ESP32-S3 DevKits it
-            drives the on-board RGB LED.
+            One data output per letter, in the order of the letters in the
+            text. Up to 8 letters use the first 8 pins (8-bit LCD bus); 9 to 16
+            letters use all 16. Every listed pin of the bus is driven, even if
+            no letter is plugged into it. Each output goes through a 74AHCT245
+            level shifter and a 100 ohm series resistor. Avoid strapping pins
+            (0, 3, 45, 46), USB (19, 20) and flash/PSRAM pins (26-37).
+
+    config LETTERS_BUS_WR_GPIO
+        int "LCD bus clock (WR) GPIO -- leave unconnected"
+        range 0 48
+        default 2
+        help
+            The parallel output uses the LCD peripheral, which needs a clock
+            pin even though the LEDs don't use it. Pick a free pin; nothing is
+            connected to it.
+
+    config LETTERS_BUS_DC_GPIO
+        int "LCD bus D/C GPIO -- leave unconnected"
+        range 0 48
+        default 1
 
     config LETTERS_BUTTON_GPIO
         int "Button GPIO (active low)"
@@ -16,15 +32,6 @@ menu "LED letters"
         help
             Short press: next effect. Long press: brightness step. GPIO 0 is the
             BOOT button on ESP32-S3 DevKits.
-
-    config LETTERS_MAX_CURRENT_MA
-        int "Current budget for all LEDs (mA)"
-        range 500 100000
-        default 4000
-        help
-            Frames are dimmed so the estimated LED current never exceeds this.
-            Set it to ~80% of the 5 V power supply rating. manifest.json from
-            cad/generate.py lists the current at full white.
 
     config LETTERS_DEFAULT_BRIGHTNESS
         int "Default brightness (0-255)"

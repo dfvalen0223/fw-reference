@@ -1,10 +1,11 @@
 // Host unit tests for the pure-C parts of the firmware (effects + power).
-// Build and run: make -C led-letters/firmware/test
+// Build and run: make -C firmware/test
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "effects.h"
+#include "lanes.h"
 #include "power.h"
 
 static int failures;
@@ -17,7 +18,7 @@ static int failures;
     } while (0)
 
 // Two letters, 3 + 2 pixels, spread across a 400 mm wide word.
-static const led_letter_t LETTERS[] = {{'H', 0, 3}, {'I', 3, 2}};
+static const led_letter_t LETTERS[] = {{'H', 0, 3, 0, 1000}, {'I', 3, 2, 1, 1000}};
 static const led_pos_t MAP[] = {
     {0, 10, 0}, {50, 100, 0}, {100, 190, 0}, {300, 20, 1}, {400, 180, 1},
 };
@@ -130,6 +131,73 @@ static void test_brightness_and_gamma(void)
     CHECK(out[0].g > 45 && out[0].g < 65);  // 128 -> ~56 with gamma 2.2
 }
 
+// Reads lane k back out of an encoded buffer, checking the slot pattern of
+// every bit. Returns the number of LEDs recovered before the lane went idle.
+static size_t decode_lane(const void *buf, int bus_bits, int k, size_t max_leds, uint8_t *out)
+{
+    size_t slot = 0, leds = 0;
+    for (size_t led = 0; led < max_leds; led++) {
+        int active = -1;
+        for (int byte = 0; byte < 3; byte++) {
+            uint8_t v = 0;
+            for (int bit = 7; bit >= 0; bit--) {
+                uint16_t s[4];
+                for (int i = 0; i < 4; i++)
+                    s[i] = bus_bits == 16 ? ((const uint16_t *)buf)[slot + i] : ((const uint8_t *)buf)[slot + i];
+                slot += 4;
+                int start = s[0] >> k & 1, one = s[1] >> k & 1;
+                CHECK((s[2] >> k & 1) == 0 && (s[3] >> k & 1) == 0);  // every bit ends low
+                CHECK(!one || start);                                  // high can't start late
+                if (active < 0) active = start;
+                CHECK(start == active);                                // whole LED on or idle
+                v = (uint8_t)(v << 1 | one);
+            }
+            if (active) out[led * 3 + byte] = v;
+        }
+        if (active) leds++;
+    }
+    return leds;
+}
+
+static void test_lanes_roundtrip(int bus_bits, size_t lanes)
+{
+    enum { MAXL = 7 };
+    static uint8_t data[LANES_MAX][MAXL * 3], back[MAXL * 3];
+    const uint8_t *ptr[LANES_MAX];
+    size_t len[LANES_MAX];
+    uint32_t seed = 12345;
+    for (size_t k = 0; k < lanes; k++) {
+        len[k] = (k * 3) % (MAXL + 1);  // includes empty and full-length lanes
+        for (size_t i = 0; i < MAXL * 3; i++) {
+            seed = seed * 1103515245u + 12345u;
+            data[k][i] = (uint8_t)(seed >> 16);
+        }
+        ptr[k] = data[k];
+    }
+    size_t bytes = lanes_buffer_bytes(MAXL, bus_bits);
+    CHECK(bytes == (size_t)MAXL * 24 * 4 * (bus_bits / 8));
+    uint8_t *buf = calloc(1, bytes);
+    lanes_encode(buf, bus_bits, lanes, ptr, len, MAXL);
+    for (size_t k = 0; k < lanes; k++) {
+        memset(back, 0, sizeof(back));
+        CHECK(decode_lane(buf, bus_bits, (int)k, MAXL, back) == len[k]);
+        CHECK(memcmp(back, data[k], len[k] * 3) == 0);
+    }
+    // Unused bus lines stay low for the whole frame.
+    for (size_t i = 0; i < bytes / (bus_bits / 8); i++) {
+        uint16_t w = bus_bits == 16 ? ((uint16_t *)buf)[i] : buf[i];
+        CHECK((w >> lanes) == 0);
+    }
+    free(buf);
+}
+
+static void test_lane_timing(void)
+{
+    // 3.2 MHz slots: '0' = 312.5 ns high, '1' = 625 ns high, 1.25 us per bit.
+    CHECK(LANES_SLOT_HZ / 1000 * LANES_SLOTS_PER_BIT == 12800);
+    CHECK(1000000000u / LANES_SLOT_HZ == 312);
+}
+
 int main(void)
 {
     test_solid();
@@ -141,6 +209,11 @@ int main(void)
     test_every_effect_is_safe();
     test_power_limits_current();
     test_brightness_and_gamma();
+    test_lanes_roundtrip(8, 8);
+    test_lanes_roundtrip(8, 3);
+    test_lanes_roundtrip(16, 16);
+    test_lanes_roundtrip(16, 11);
+    test_lane_timing();
     if (failures) {
         printf("%d check(s) failed\n", failures);
         return 1;

@@ -1,4 +1,0 @@
-dependencies:
-  idf: ">=5.1"
-  # RMT backend with DMA support on the ESP32-S3.
-  espressif/led_strip: "^3.0.3"

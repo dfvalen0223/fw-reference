@@ -1,10 +1,10 @@
 # Host unit tests for the ESP-IDF-independent firmware code.
-#   make -C led-letters/firmware/test
+#   make -C firmware/test
 CC ?= cc
 CFLAGS ?= -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-omit-frame-pointer
-SRC = test_fx.c ../main/effects.c ../main/power.c
+SRC = test_fx.c ../main/effects.c ../main/power.c ../main/lanes.c
 
-test_fx: $(SRC) ../main/effects.h ../main/power.h ../main/led_layout.h
+test_fx: $(SRC) ../main/effects.h ../main/power.h ../main/lanes.h ../main/led_layout.h
 	$(CC) $(CFLAGS) -I../main -o $@ $(SRC) -lm
 
 .PHONY: test clean

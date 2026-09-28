@@ -1,21 +1,28 @@
 # Electrónica y cableado
 
+El manual generado (`manual_ensamble.pdf`) trae los valores concretos de cada
+letrero: salida del controlador, fuente y largo de cable de cada letra. Este
+documento explica el esquema general.
+
 ## Topología
 
-Una sola cadena de datos recorre todas las letras (letra a letra por un
-conector JST-SM de 3 pines). La **alimentación no viaja por la cadena**: cada
-letra recibe 5 V y GND directamente desde la fuente (inyección por letra).
+Cada letra es independiente: tiene **su propia fuente de 5 V** (enchufada en
+un jack DC en el dorso de la letra) y recibe **un cable de datos** desde el
+controlador (conector GX12 en el dorso). El controlador no lleva potencia a
+las letras, sólo datos.
 
 ```
-                 ┌──────────── 5 V / GND (cable grueso, fusible por rama) ────────────┐
-                 │                         │                          │               │
- ┌──────────┐   ┌┴────────┐   JST-SM      ┌┴────────┐   JST-SM       ┌┴────────┐      │
- │ ESP32-S3 ├──►│ Letra H │──────────────►│ Letra O │───────────────►│ Letra L │─ ... │
- └────┬─────┘   └─────────┘  datos + GND  └─────────┘  datos + GND   └─────────┘      │
-      │  GPIO16 ─► 74AHCT125 ─► 330 Ω ─► DATA IN                                    ┌──┴───┐
-      └──────────────────────────── GND común ──────────────────────────────────────┤Fuente│
-                                                                                    │ 5 V  │
-                                                                                    └──────┘
+   Fuente 5 V      Fuente 5 V      Fuente 5 V
+       │               │               │
+   ┌───┴───┐       ┌───┴───┐       ┌───┴───┐
+   │   H   │       │   O   │       │   L   │   ...
+   └───┬───┘       └───┬───┘       └───┬───┘
+       │ datos+GND     │               │
+       └──────────┐    │    ┌──────────┘
+             OUT 1│OUT 2  OUT 3
+              ┌───┴────┴────┴───┐
+              │ ESP32-S3 + 245  │◄── cargador USB-C 5 V
+              └─────────────────┘
 ```
 
 ## Controlador
@@ -23,81 +30,61 @@ letra recibe 5 V y GND directamente desde la fuente (inyección por letra).
 | Componente | Detalle |
 |---|---|
 | ESP32-S3 DevKitC-1 (N8 / N8R2 / N16R8) | Cualquier ESP32-S3 con 4 MB de flash o más |
-| 74AHCT125 (o SN74AHCT1G125) | Convierte los datos de 3.3 V a 5 V. Sin esto la primera letra puede parpadear |
-| Resistencia 330 Ω | En serie, a la salida del level shifter |
-| Capacitor 1000 µF / 10 V | En la entrada de alimentación de **cada letra** (entre 5 V y GND) |
-| Pulsador (opcional) | El botón BOOT de la placa (GPIO 0) ya sirve |
+| 74AHCT245 (1 hasta 8 letras, 2 hasta 16) | Convierte las salidas de 3.3 V a 5 V. VCC y DIR a 5 V, OE y GND a GND |
+| Resistencia 100 Ω por salida | En serie, entre la salida B del 245 y el pin 1 del GX12 |
+| GX12 3 pines de panel por salida | Pin 1 DATOS, pin 2 GND, pin 3 libre |
+| Cargador USB-C 5 V 1 A | Alimenta sólo el controlador |
 
-Pines por defecto (se cambian en `idf.py menuconfig` → *LED letters*):
-datos **GPIO 16**, botón **GPIO 0**. Evitar GPIO 48: en muchas placas S3
-maneja el LED RGB integrado.
+Las salidas se generan **en paralelo** con el periférico LCD del ESP32-S3 y
+DMA: todas las letras reciben su cuadro al mismo tiempo, sin carga de CPU. Por
+eso el bus usa 8 GPIO (hasta 8 letras) o 16 (hasta 16), aunque haya menos
+letras: las salidas sin letra quedan en bajo. El periférico también necesita
+un pin de reloj (WR) y uno de D/C que **quedan sin conectar**.
 
-La placa se puede alimentar desde los mismos 5 V por su pin `5V`. **No
-conectar a la vez el USB y los 5 V externos** salvo que la placa tenga diodo
-de protección.
+Pines por defecto (`idf.py menuconfig` → *LED letters*):
 
-## Píxeles
+| Salida | OUT 1–8 | OUT 9–16 | WR (sin conectar) | D/C (sin conectar) | Botón |
+|---|---|---|---|---|---|
+| GPIO | 4, 5, 6, 7, 15, 16, 17, 18 | 8, 9, 10, 11, 12, 13, 14, 21 | 2 | 1 | 0 (BOOT) |
 
-WS2812B de **12 mm tipo "bullet" en tira-cable**, 5 V, IP68, con **100 mm de
-cable entre píxeles** (o el largo que indiques con `--pixel-lead`). Vienen con
-JST-SM de 3 pines en los extremos. Algunos modelos son orden de color RGB en
-vez de GRB: si rojo y verde aparecen cambiados, cambiarlo en `menuconfig`.
+## Dentro de cada letra
 
-La cantidad por letra está en `manifest.json` (`letters[].count`). Comprar un
-10 % extra.
+| Del puerto | A |
+|---|---|
+| Jack DC centro (+) | 5 V del píxel 1 (entrada de la tira) |
+| Jack DC exterior | GND del píxel 1 |
+| GX12 pin 1 | DATOS del píxel 1 |
+| GX12 pin 2 | GND |
+| Capacitor 1000 µF 10 V | Entre 5 V y GND, en el jack (respetar polaridad) |
+
+Si la letra tiene más de ~100 píxeles, llevar también 5 V y GND desde el jack
+al último píxel (el manual lo indica como nota especial).
+
+Letras de trazo muy angosto (letras chicas o tipografías finas) no tienen
+lugar para los conectores de panel: el generador deja un agujero de 7 mm para
+sacar un cable corto con los conectores en la punta.
 
 ## Alimentación
 
-Cada píxel consume hasta **60 mA en blanco total**; el manifiesto da el total
-(`amps_at_full_white_5v`). En la práctica los efectos de color usan un 30–50 %
-de eso, y el firmware **nunca supera el límite configurado**
-(`LETTERS_MAX_CURRENT_MA`): atenúa el cuadro completo si hace falta.
+Cada píxel consume hasta **60 mA en blanco total**. El generador elige la
+fuente de cada letra (la más chica de 2/3/4/5/6/8/10/15/20 A que cubra ~75 %
+del máximo) y el firmware mantiene cada letra **por debajo del 80 %** de su
+fuente, atenuando esa letra si hace falta. Por eso cada letra puede usar una
+fuente distinta.
 
-| Instalación | Píxeles | Máx. teórico | Fuente sugerida | `LETTERS_MAX_CURRENT_MA` |
+| Letra (HOLA 400 mm) | Píxeles | Máx. teórico | Fuente | Límite en firmware |
 |---|---|---|---|---|
-| HOLA 150 mm | 33 | 2 A | 5 V 3 A | 2400 |
-| HOLA 400 mm | 83 | 5 A | 5 V 6 A | 4800 |
-| HOLA 600 mm | 157 | 9.4 A | 5 V 10 A | 8000 |
-| HOLA 1 m | ~410 | 25 A | 5 V 20 A (o 2 × 10 A) | 16000 |
+| H | 27 | 1.6 A | 2 A | 1.6 A |
+| O | 23 | 1.4 A | 2 A | 1.6 A |
+| L | 14 | 0.8 A | 2 A | 1.6 A |
+| A | 19 | 1.1 A | 2 A | 1.6 A |
 
-Regla: `LETTERS_MAX_CURRENT_MA` ≈ 80 % de la capacidad de la fuente.
+## Cables de datos
 
-### Cables
-
-| Tramo | Sección |
-|---|---|
-| Fuente → cada letra (hasta 5 A) | 1 mm² / 18 AWG |
-| Tronco de la fuente con varias letras | 2.5 mm² / 14 AWG |
-| Datos letra a letra | el del JST-SM (22 AWG), máx. ~3 m entre letras |
-
-- Un **fusible por rama** (5 A para letras de hasta ~80 píxeles).
-- Si una letra tiene más de ~120 píxeles (letras de 1 m), inyectar 5 V y GND
-  también en el último píxel de esa letra.
-- Todas las masas unidas: fuente, ESP32-S3 y cada letra.
-
-## Conector entre letras (JST-SM 3 pines)
-
-| Pin | Señal | Color habitual |
-|---|---|---|
-| 1 | 5 V | Rojo |
-| 2 | Datos | Verde (o blanco) |
-| 3 | GND | Blanco (o azul) |
-
-Los colores cambian según el fabricante: **medir con tester antes de conectar**.
-La salida de una letra (último píxel) va a la entrada (`DATA IN`) de la
-siguiente; en esa unión conectar sólo **datos y GND** si cada letra tiene su
-propia inyección de 5 V.
-
-## Lista de materiales electrónica (instalación "HOLA" 400 mm)
-
-| Cant. | Ítem |
-|---|---|
-| 1 | ESP32-S3 DevKitC-1 |
-| 1 | 74AHCT125 + resistencia 330 Ω |
-| 4 | Capacitor 1000 µF 10 V (uno por letra) |
-| 1 | Fuente 5 V 6 A |
-| 90 | Píxeles WS2812B 12 mm, tira con 100 mm entre píxeles (83 + 10 %) |
-| 4 | Pares JST-SM 3 pines (entrada de cada letra) |
-| 4 | Fusibles 5 A con porta-fusible |
-| — | Cable 1 mm² rojo/negro, extensiones de 3 hilos según el mapa de ensamble |
-| 15 | Precintos ≤ 4.8 mm (según `zip_tie_points`) |
+- 2 conductores (datos + GND) de 0,5 mm², o cable de micrófono blindado para
+  tramos largos o ambientes con ruido.
+- El generador calcula el largo suponiendo el controlador detrás del centro
+  de la palabra (+1 m de holgura). Hasta ~5 m funciona sin problemas con el
+  74AHCT245 y la resistencia de 100 Ω.
+- Todas las masas quedan unidas por el pin 2 de cada cable: no hace falta
+  unir las fuentes entre sí.
