@@ -1,0 +1,12 @@
+# generate.py output (STL, manifests, assembly maps)
+build/
+# ESP-IDF build artifacts
+firmware/build/
+firmware/sdkconfig
+firmware/sdkconfig.old
+firmware/managed_components/
+firmware/dependencies.lock
+firmware/test/test_fx
+__pycache__/
+# hand-written (the repo root ignores CMake-generated Makefiles)
+!firmware/test/Makefile

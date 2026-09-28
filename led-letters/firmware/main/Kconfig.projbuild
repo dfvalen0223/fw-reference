@@ -1,0 +1,71 @@
+menu "LED letters"
+
+    config LETTERS_DATA_GPIO
+        int "WS2812B data GPIO"
+        range 0 48
+        default 16
+        help
+            GPIO driving the pixel chain (through a 74AHCT125 level shifter and a
+            330 ohm series resistor). Avoid GPIO 48: on many ESP32-S3 DevKits it
+            drives the on-board RGB LED.
+
+    config LETTERS_BUTTON_GPIO
+        int "Button GPIO (active low)"
+        range 0 48
+        default 0
+        help
+            Short press: next effect. Long press: brightness step. GPIO 0 is the
+            BOOT button on ESP32-S3 DevKits.
+
+    config LETTERS_MAX_CURRENT_MA
+        int "Current budget for all LEDs (mA)"
+        range 500 100000
+        default 4000
+        help
+            Frames are dimmed so the estimated LED current never exceeds this.
+            Set it to ~80% of the 5 V power supply rating. manifest.json from
+            cad/generate.py lists the current at full white.
+
+    config LETTERS_DEFAULT_BRIGHTNESS
+        int "Default brightness (0-255)"
+        range 0 255
+        default 128
+
+    config LETTERS_FPS
+        int "Frames per second"
+        range 10 120
+        default 50
+
+    choice LETTERS_COLOR_ORDER
+        prompt "Pixel colour order"
+        default LETTERS_COLOR_ORDER_GRB
+        help
+            WS2812B is GRB. Some 12 mm bullet pixels are RGB: if red and green
+            look swapped, pick RGB.
+        config LETTERS_COLOR_ORDER_GRB
+            bool "GRB (WS2812B)"
+        config LETTERS_COLOR_ORDER_RGB
+            bool "RGB"
+    endchoice
+
+    config LETTERS_WIFI_AP
+        bool "Wi-Fi access point + web control page"
+        default y
+
+    config LETTERS_AP_SSID
+        string "Access point name"
+        default "LETRAS-LED"
+        depends on LETTERS_WIFI_AP
+
+    config LETTERS_AP_PASSWORD
+        string "Access point password (8+ characters, change it!)"
+        default "cambiar-esta-clave"
+        depends on LETTERS_WIFI_AP
+
+    config LETTERS_AP_CHANNEL
+        int "Wi-Fi channel"
+        range 1 13
+        default 6
+        depends on LETTERS_WIFI_AP
+
+endmenu
